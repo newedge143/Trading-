@@ -29,7 +29,7 @@ from src.scalp_strategy import ScalpStrategy, Signal
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
 INITIAL    = 10.00
-RISK_PCT   = 0.02
+RISK_PCT   = 0.50   # 50% per trade — extreme, user override
 COMMISSION = 0.0012   # 0.12% round-trip BloFin taker
 SYMBOL_REQ = os.environ.get("TRADING_PAIR", "DOGE/USDT:USDT")
 W = 80

@@ -58,7 +58,7 @@ BLOFIN_PASSPHRASE = "yodamoney"
 # ─────────────────────────────────────────────────────────────────────────────
 SYMBOL             = os.environ.get("TRADING_PAIR", "DOGE/USDT:USDT")  # default DOGE; override with TRADING_PAIR env var
 TIMEFRAME          = "1m"
-RISK_PCT           = 0.02             # 2% of balance risked per trade
+RISK_PCT           = 0.50             # 50% of balance risked per trade (user override — extreme)
 RR_RATIO           = 3.0             # take profit = 3 × stop-loss distance
 ATR_SL_MULT        = 2.5             # stop = 2.5 × ATR(14) below/above entry
 MAX_DAILY_LOSS_PCT = 0.10            # stop all trading if down 10% on the day
