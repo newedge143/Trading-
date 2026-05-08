@@ -21,6 +21,7 @@ Run on YOUR OWN machine:
   Ensure your API key has TRADE permission ONLY — no withdrawal.
 """
 
+import os
 import sys
 import io
 import time
@@ -55,7 +56,7 @@ BLOFIN_PASSPHRASE = "yodamoney"
 # ─────────────────────────────────────────────────────────────────────────────
 #  TRADING CONFIG  —  adjust these if needed
 # ─────────────────────────────────────────────────────────────────────────────
-SYMBOL             = "XAU/USDT:USDT"  # BloFin gold perpetual (ccxt format); auto-detected at startup
+SYMBOL             = os.environ.get("TRADING_PAIR", "DOGE/USDT:USDT")  # default DOGE; override with TRADING_PAIR env var
 TIMEFRAME          = "1m"
 RISK_PCT           = 0.02             # 2% of balance risked per trade
 RR_RATIO           = 3.0             # take profit = 3 × stop-loss distance
@@ -135,29 +136,37 @@ def journal_write(row: dict):
 # ─────────────────────────────────────────────────────────────────────────────
 #  EXCHANGE HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
-def detect_symbol(ex: ccxt.blofin) -> str:
-    """Find the correct ccxt symbol for the BloFin XAU/Gold perpetual swap."""
-    candidates = [
-        "XAU/USDT:USDT",
-        "XAUUSDT:USDT",
-        "XAU/USDT",
-        "XAUUSDT",
-    ]
+def detect_symbol(ex: ccxt.blofin, requested: str) -> str:
+    """Resolve a requested symbol (e.g. DOGE/USDT:USDT or DOGE) to BloFin's actual market."""
     markets = ex.markets
+
+    # Direct hit
+    if requested in markets:
+        log.info(f"Symbol found: {requested}")
+        return requested
+
+    # Try common ccxt format variations
+    base = requested.split("/")[0].split("-")[0].split(":")[0].upper()
+    candidates = [
+        f"{base}/USDT:USDT",
+        f"{base}USDT:USDT",
+        f"{base}/USDT",
+        f"{base}USDT",
+    ]
     for c in candidates:
         if c in markets:
-            log.info(f"Gold symbol found: {c}")
+            log.info(f"Symbol found: {c} (resolved from {requested})")
             return c
-    # Fallback: search by id containing XAU
+
+    # Fallback: scan by base asset
     for sym, mkt in markets.items():
-        base = (mkt.get("base") or "").upper()
-        mtype = (mkt.get("type") or "").lower()
-        if base == "XAU" and "swap" in mtype:
-            log.info(f"Gold symbol found (scan): {sym}")
+        if (mkt.get("base") or "").upper() == base and "swap" in (mkt.get("type") or "").lower():
+            log.info(f"Symbol found via scan: {sym}")
             return sym
+
     raise RuntimeError(
-        "Cannot find XAU perpetual swap on BloFin. "
-        f"Available XAU markets: {[s for s in markets if 'XAU' in s.upper()]}"
+        f"Cannot find {base} perpetual swap on BloFin. "
+        f"Available {base} markets: {[s for s in markets if base in s.upper()]}"
     )
 
 
@@ -170,7 +179,7 @@ def make_exchange() -> ccxt.blofin:
         "options":  {"defaultType": "swap"},
     })
     ex.load_markets()
-    SYMBOL = detect_symbol(ex)
+    SYMBOL = detect_symbol(ex, SYMBOL)
     return ex
 
 
@@ -323,7 +332,8 @@ def seconds_to_next_bar() -> float:
 # ─────────────────────────────────────────────────────────────────────────────
 def run(dry_run: bool = False):
     log.info("=" * 60)
-    log.info("  XAUUSD.P ACCELERATION BREAKOUT BOT - BloFin LIVE")
+    log.info("  ACCELERATION BREAKOUT BOT - BloFin LIVE")
+    log.info(f"  Pair     : {SYMBOL}")
     log.info(f"  Mode     : {'** DRY RUN - no real orders **' if dry_run else 'LIVE TRADING'}")
     log.info(f"  Schedule : 24/7 - no session restrictions")
     log.info(f"  Risk     : {RISK_PCT*100:.0f}% per trade  |  R:R {RR_RATIO:.0f}:1")
