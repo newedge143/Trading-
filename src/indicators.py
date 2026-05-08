@@ -96,5 +96,28 @@ def consolidation_range(
     return in_consol, roll_high, roll_low
 
 
+def ema(close: pd.Series, period: int) -> pd.Series:
+    """Exponential Moving Average."""
+    return close.ewm(span=period, adjust=False).mean()
+
+
+def candle_body_ratio(open_: pd.Series, close: pd.Series, high: pd.Series, low: pd.Series):
+    """
+    Returns (body_size, body_ratio).
+    body_size  = abs(close - open)
+    body_ratio = body_size / (high - low), i.e. body as fraction of total candle range.
+    """
+    body = (close - open_).abs()
+    candle_range = (high - low).replace(0, float("nan"))
+    return body, body / candle_range
+
+
+def squeeze_duration(squeeze: pd.Series) -> pd.Series:
+    """Count of consecutive True bars in the squeeze (resets to 0 on False)."""
+    cumsum = squeeze.cumsum()
+    reset = cumsum - cumsum.where(~squeeze).ffill().fillna(0)
+    return reset.astype(int)
+
+
 def volume_sma(volume: pd.Series, period: int = 20) -> pd.Series:
     return volume.rolling(period).mean()

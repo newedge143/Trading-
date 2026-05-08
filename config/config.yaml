@@ -1,34 +1,60 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Acceleration Breakout — XAUUSD.P Optimal Configuration
+# Sources: Forex Factory NY ORB thread, ilahuerta-IA/backtrader-pullback-window-xauusd,
+#          GOLD_ORB EA, TrendSpider BB/KC squeeze research, QuantifiedStrategies
+# ─────────────────────────────────────────────────────────────────────────────
+
 trading:
   symbol: "XAUUSD.P"
-  timeframe: "15m"
+  timeframe: "5m"           # 5m optimal per backtested XAUUSD systems (55%+ WR)
   leverage: 1
 
 strategy:
-  # Consolidation detection
-  consolidation_period: 20        # bars to look back for consolidation
-  consolidation_atr_mult: 0.5     # ATR multiplier — tight if range < mult * ATR
-  squeeze_bb_period: 20           # Bollinger Band period for squeeze detection
-  squeeze_bb_std: 2.0             # BB standard deviation
-  squeeze_kc_mult: 1.5            # Keltner Channel multiplier for squeeze
+  # ── Session filter (UTC) ──────────────────────────────────────────────────
+  # Gold moves most on London open (07:00-09:30) and NY open (13:30-15:30).
+  # Forex Factory backtests show win rate collapses outside these windows.
+  session_filter: true
+  sessions:
+    - { start: "07:00", end: "09:30" }   # London open
+    - { start: "13:30", end: "15:30" }   # NY open (09:30–11:30 ET)
 
-  # Momentum acceleration
-  roc_fast: 5                     # fast Rate-of-Change period
-  roc_slow: 14                    # slow Rate-of-Change period
-  accel_threshold: 0.0            # fast ROC must exceed slow ROC by this amount
+  # ── Consolidation / squeeze detection ────────────────────────────────────
+  # Standard BB(20,2.0) inside KC(20,1.5) per TrendSpider & QuantifiedStrategies
+  consolidation_period: 20
+  consolidation_atr_mult: 0.6     # range < 0.6×ATR = tight coil
+  squeeze_bb_period: 20
+  squeeze_bb_std: 2.0
+  squeeze_kc_mult: 1.5            # KC multiplier validated by multiple sources
+  min_squeeze_bars: 6             # require at least 6 bars of squeeze (30 min at 5m)
 
-  # Breakout confirmation
-  breakout_bars: 2                # bars price must close outside consolidation range
-  volume_mult: 1.3                # breakout volume must be > mult * avg volume
+  # ── Breakout candle quality ───────────────────────────────────────────────
+  # Forex Factory NY ORB: body ≥ 0.8×ATR(5) AND body ≥ 60% of candle range
+  breakout_body_atr_mult: 0.8     # minimum candle body as fraction of ATR(5)
+  breakout_body_candle_ratio: 0.60  # body must be ≥ 60% of high-low range
+
+  # ── Momentum acceleration ─────────────────────────────────────────────────
+  roc_fast: 3                     # fast ROC period
+  roc_slow: 8                     # baseline rolling window
+  accel_threshold: 0.05           # fast ROC must exceed its mean by 0.05%
+
+  # ── Breakout confirmation ─────────────────────────────────────────────────
+  breakout_bars: 1                # 1 bar close outside range (NY ORB best practice)
+  volume_mult: 1.5                # 1.5× volume spike (BB/KC research standard)
+
+  # ── Trend filter ──────────────────────────────────────────────────────────
+  # Only trade in direction of 50 EMA — filters ~30% of false breakouts
+  ema_trend_period: 50
 
 risk:
-  risk_per_trade: 0.01            # 1% of account per trade
-  reward_risk_ratio: 2.0          # take profit at 2× the risk
-  max_open_trades: 3
-  trailing_stop: false
-  trailing_stop_pct: 0.005        # 0.5% trailing distance if enabled
+  risk_per_trade: 0.01            # 1% per trade (consistent across all backtested systems)
+  atr_sl_mult: 2.5                # SL buffer: 2.5×ATR (ilahuerta-IA system, 5.81% max DD)
+  reward_risk_ratio: 3.0          # 3:1 R:R (GOLD_ORB: 1200pt TP / 400pt SL)
+  max_open_trades: 2              # Max 2/day (GOLD_ORB best practice)
+  trailing_stop: true
+  trailing_stop_pct: 0.003        # 0.3% trail after TP1
 
 backtest:
   start_date: "2024-01-01"
   end_date: "2025-01-01"
   initial_capital: 10000.0
-  commission: 0.001               # 0.1% taker fee
+  commission: 0.0002              # ~0.02% spread for gold perps
