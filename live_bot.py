@@ -56,14 +56,14 @@ BLOFIN_PASSPHRASE = "yodamoney"
 #  TRADING CONFIG  —  adjust these if needed
 # ─────────────────────────────────────────────────────────────────────────────
 SYMBOL             = "XAU/USDT:USDT"  # BloFin gold perpetual (ccxt format); auto-detected at startup
-TIMEFRAME          = "5m"
+TIMEFRAME          = "1m"
 RISK_PCT           = 0.02             # 2% of balance risked per trade
 RR_RATIO           = 3.0             # take profit = 3 × stop-loss distance
 ATR_SL_MULT        = 2.5             # stop = 2.5 × ATR(14) below/above entry
 MAX_DAILY_LOSS_PCT = 0.10            # stop all trading if down 10% on the day
 LEVERAGE           = 10              # set leverage on BloFin (10× = safe start)
-BAR_SECONDS        = 300             # 5 minutes per candle
-CANDLES_NEEDED     = 120             # history for indicators (10h on 5m)
+BAR_SECONDS        = 60              # 1 minute per candle
+CANDLES_NEEDED     = 200             # history for indicators (~3.3h on 1m)
 
 STRATEGY_CONFIG = {
     "strategy": {
@@ -77,7 +77,7 @@ STRATEGY_CONFIG = {
         "squeeze_bb_period":         20,
         "squeeze_bb_std":            2.0,
         "squeeze_kc_mult":           1.5,
-        "min_squeeze_bars":          5,
+        "min_squeeze_bars":          3,   # 3 bars on 1m = 3 min squeeze (enough for quality)
         "breakout_body_atr_mult":    0.8,
         "breakout_body_candle_ratio":0.60,
         "roc_fast":                  3,
@@ -312,9 +312,9 @@ def session_name() -> str:
 #  WAIT UNTIL NEXT BAR CLOSE
 # ─────────────────────────────────────────────────────────────────────────────
 def seconds_to_next_bar() -> float:
-    now = datetime.now(timezone.utc)
-    elapsed = (now.minute % 5) * 60 + now.second
-    wait    = BAR_SECONDS - elapsed + 5   # +5s buffer after bar closes
+    now     = datetime.now(timezone.utc)
+    elapsed = now.second                  # 1m bar: just count seconds within the minute
+    wait    = BAR_SECONDS - elapsed + 2   # +2s buffer after bar closes
     return max(wait, 1)
 
 
