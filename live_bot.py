@@ -69,19 +69,20 @@ STRATEGY_CONFIG = {
     "strategy": {
         "session_filter": False,          # 24/7 — no session restrictions
         "sessions":       [],
-        "consolidation_period":      20,
-        "consolidation_atr_mult":    0.6,
+        "consolidation_period":      10,   # 10-bar rolling high/low for breakout level
+        "consolidation_atr_mult":    1.0,
         "squeeze_bb_period":         20,
         "squeeze_bb_std":            2.0,
         "squeeze_kc_mult":           1.5,
-        "min_squeeze_bars":          3,   # 3 bars on 1m = 3-min squeeze
-        "breakout_body_atr_mult":    0.8,
-        "breakout_body_candle_ratio":0.60,
+        "min_squeeze_bars":          2,
+        "require_squeeze":           False, # fire on ANY momentum breakout, not just squeeze
+        "breakout_body_atr_mult":    0.3,  # small body ok
+        "breakout_body_candle_ratio":0.40, # 40% body ratio
         "roc_fast":                  3,
         "roc_slow":                  8,
-        "accel_threshold":           0.02,
+        "accel_threshold":           0.005, # very sensitive momentum
         "breakout_bars":             1,
-        "volume_mult":               1.3,
+        "volume_mult":               1.0,  # no volume gate
         "ema_trend_period":          50,
     },
     "risk": {

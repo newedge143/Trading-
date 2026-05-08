@@ -92,6 +92,9 @@ class AccelerationBreakoutStrategy:
         # Trend filter
         self.ema_period: int = s.get("ema_trend_period", 50)
 
+        # If False, skip the squeeze-duration gate (fires on any momentum breakout)
+        self.require_squeeze: bool = s.get("require_squeeze", True)
+
         # Risk
         r = config["risk"]
         self.rr_ratio: float = r["reward_risk_ratio"]
@@ -184,10 +187,10 @@ class AccelerationBreakoutStrategy:
         if not self._in_session(row.name):
             return None
 
-        # 2. Recent squeeze (min_squeeze_bars consecutive bars prior to breakout)
+        # 2. Recent squeeze (optional — skip for high-frequency mode)
         lookback = df["squeeze_dur"].iloc[: idx + 1]
         max_recent_squeeze = lookback.iloc[max(0, idx - self.consol_period) : idx].max()
-        if max_recent_squeeze < self.min_squeeze_bars:
+        if self.require_squeeze and max_recent_squeeze < self.min_squeeze_bars:
             return None
 
         # 3. Extract price levels
