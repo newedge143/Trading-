@@ -33,7 +33,7 @@ from src.strategy import AccelerationBreakoutStrategy, Signal
 
 # ─── CONFIG (mirrors live_bot.py exactly) ────────────────────────────────────
 INITIAL    = 10.00
-RISK_PCT   = 0.50   # 50% per trade — extreme, user override
+RISK_PCT   = 0.02   # 2% — testing strategy edge; scale up once edge is proven
 RR         = 3.0
 COMMISSION = 0.0012   # 0.12% round-trip BloFin taker
 SYMBOL_REQ = os.environ.get("TRADING_PAIR", "DOGE/USDT:USDT")
