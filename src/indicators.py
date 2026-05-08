@@ -59,11 +59,18 @@ def bb_squeeze(
 
 def momentum_histogram(close: pd.Series, fast: int, slow: int) -> pd.Series:
     """
-    Acceleration histogram: fast ROC minus slow ROC.
-    Positive = momentum is accelerating upward.
-    Negative = momentum is accelerating downward.
+    Acceleration histogram: current fast ROC minus its own slow-period rolling mean.
+
+    This measures whether momentum is running ABOVE its recent baseline — it
+    spikes sharply positive on a genuine breakout regardless of the prior trend
+    direction, avoiding the sign-reversal problem of fast-ROC minus slow-ROC.
+
+    Positive = momentum is accelerating above its recent norm (bullish surge).
+    Negative = momentum is decelerating / dropping below its recent norm.
     """
-    return roc(close, fast) - roc(close, slow)
+    fast_roc = roc(close, fast)
+    baseline = fast_roc.rolling(slow).mean()
+    return fast_roc - baseline
 
 
 def consolidation_range(
@@ -76,10 +83,13 @@ def consolidation_range(
     """
     Identify tight consolidation zones.
     Returns (in_consolidation, range_high, range_low).
+
+    Uses .shift(1) so the range is computed from PAST bars only, making it
+    possible for the CURRENT close to break above/below the stored range.
     `in_consolidation` is True when the rolling range < atr_mult * ATR.
     """
-    roll_high = high.rolling(period).max()
-    roll_low = low.rolling(period).min()
+    roll_high = high.rolling(period).max().shift(1)
+    roll_low = low.rolling(period).min().shift(1)
     roll_range = roll_high - roll_low
     _atr = atr(high, low, close, period)
     in_consol = roll_range < (atr_mult * _atr)

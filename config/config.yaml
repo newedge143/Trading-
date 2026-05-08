@@ -1,5 +1,5 @@
 trading:
-  symbol: "BTC/USDT"
+  symbol: "XAUUSD.P"
   timeframe: "15m"
   leverage: 1
 
