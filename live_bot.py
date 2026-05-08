@@ -67,17 +67,14 @@ CANDLES_NEEDED     = 200             # history for indicators (~3.3h on 1m)
 
 STRATEGY_CONFIG = {
     "strategy": {
-        "session_filter": True,
-        "sessions": [
-            {"start": "07:00", "end": "10:00"},   # London open
-            {"start": "13:30", "end": "16:30"},   # NY open
-        ],
+        "session_filter": False,          # 24/7 — no session restrictions
+        "sessions":       [],
         "consolidation_period":      20,
         "consolidation_atr_mult":    0.6,
         "squeeze_bb_period":         20,
         "squeeze_bb_std":            2.0,
         "squeeze_kc_mult":           1.5,
-        "min_squeeze_bars":          3,   # 3 bars on 1m = 3 min squeeze (enough for quality)
+        "min_squeeze_bars":          3,   # 3 bars on 1m = 3-min squeeze
         "breakout_body_atr_mult":    0.8,
         "breakout_body_candle_ratio":0.60,
         "roc_fast":                  3,
@@ -305,7 +302,9 @@ def session_name() -> str:
         return "London"
     if 13*60+30 <= minute < 16*60+30:
         return "NY"
-    return "Closed"
+    if 22*60 <= minute or minute < 7*60:
+        return "Asia"
+    return "Mid"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -325,6 +324,7 @@ def run(dry_run: bool = False):
     log.info("=" * 60)
     log.info("  XAUUSD.P ACCELERATION BREAKOUT BOT - BloFin LIVE")
     log.info(f"  Mode     : {'** DRY RUN - no real orders **' if dry_run else 'LIVE TRADING'}")
+    log.info(f"  Schedule : 24/7 - no session restrictions")
     log.info(f"  Risk     : {RISK_PCT*100:.0f}% per trade  |  R:R {RR_RATIO:.0f}:1")
     log.info(f"  Daily stop: {MAX_DAILY_LOSS_PCT*100:.0f}% max loss")
     log.info("=" * 60)
@@ -364,7 +364,7 @@ def run(dry_run: bool = False):
             daily_loss = (balance - day_start_balance) / day_start_balance
             if daily_loss <= -MAX_DAILY_LOSS_PCT:
                 log.warning(
-                    f"DAILY LOSS LIMIT HIT — down {daily_loss*100:.1f}% today. "
+                    f"DAILY LOSS LIMIT HIT - down {daily_loss*100:.1f}% today. "
                     f"Stopping all trading. Restart tomorrow."
                 )
                 cancel_all_open_orders(ex, dry_run)
@@ -426,8 +426,8 @@ def run(dry_run: bool = False):
                     open_qty          = None
                     balance_pre_trade = None
 
-            # ── Look for new signal (only if no position open) ─────────────
-            if open_order_id is None and in_active_session():
+            # ── Look for new signal 24/7 (no session gate) ────────────────
+            if open_order_id is None:
                 df = fetch_candles(ex)
                 if df is not None and len(df) >= 60:
                     setup = strategy.generate_signal(df)
@@ -460,17 +460,11 @@ def run(dry_run: bool = False):
                     else:
                         log.info(
                             f"[{session_name():6}] "
-                            f"{now_utc.strftime('%H:%M')} UTC — "
+                            f"{now_utc.strftime('%H:%M')} UTC  "
                             f"No signal  |  balance=${balance:.4f}"
                         )
                 else:
                     log.info("Waiting for enough candle history ...")
-
-            elif not in_active_session():
-                log.info(
-                    f"[CLOSED] {now_utc.strftime('%H:%M')} UTC — "
-                    f"Outside session. Next: London 07:00 or NY 13:30"
-                )
 
             # ── Wait for next bar ─────────────────────────────────────────
             wait = seconds_to_next_bar()
