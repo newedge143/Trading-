@@ -46,11 +46,12 @@ STRATEGY_CONFIG = {
         "stoch_overbought":70.0,
     },
     "risk": {
-        "atr_sl_mult":       1.5,    # tight stop
-        "reward_risk_ratio": 1.5,    # quick scalp target — high WR strategies do better at lower R:R
+        "atr_sl_mult":       1.5,
+        "reward_risk_ratio": 3.0,    # 3:1 — TP must beat commission cost
     },
 }
 RR = STRATEGY_CONFIG["risk"]["reward_risk_ratio"]
+MIN_TP_VS_COMM = 2.5   # skip if expected TP profit < 2.5x round-trip commission
 
 
 def resolve_symbol(ex, requested: str) -> str:
@@ -138,6 +139,13 @@ def run_backtest(df: pd.DataFrame, market: dict):
 
         pos_val = qty * entry_px * contract_sz
         comm    = pos_val * COMMISSION
+
+        # Commission viability filter — skip trades where TP can't beat fees
+        expected_tp_gross = qty * tp_dist * contract_sz
+        if expected_tp_gross < MIN_TP_VS_COMM * comm:
+            skipped += 1
+            i += 1
+            continue
 
         outcome, exit_px, bars_held = simulate_trade(df, entry_idx, setup.signal, sl, tp)
 
