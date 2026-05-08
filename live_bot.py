@@ -1,0 +1,449 @@
+#!/usr/bin/env python3
+"""
+XAUUSD.P Live Trading Bot — BloFin
+====================================
+Strategy  : Acceleration Breakout (BB/KC squeeze + momentum)
+Sessions  : London 07:00–10:00 UTC  |  NY 13:30–16:30 UTC
+Risk      : 2% per trade  |  3:1 R:R  |  10% daily hard stop
+Exchange  : BloFin  —  XAUUSDT perpetual swap
+Timeframe : 5m
+
+Run on YOUR OWN machine:
+  pip install ccxt pandas numpy
+  python live_bot.py
+
+  Add --dry-run to test without placing real orders:
+  python live_bot.py --dry-run
+
+!! SECURITY !!
+  Rotate your API keys on BloFin after this setup.
+  Never share credentials in plain text again.
+  Ensure your API key has TRADE permission ONLY — no withdrawal.
+"""
+
+import sys
+import time
+import logging
+import csv
+import argparse
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+
+import ccxt
+import pandas as pd
+import numpy as np
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+sys.path.insert(0, str(Path(__file__).parent))
+from src.strategy import AccelerationBreakoutStrategy, Signal
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CREDENTIALS  —  rotate these keys on BloFin immediately after first run
+# ─────────────────────────────────────────────────────────────────────────────
+BLOFIN_KEY        = "ab276f84c23c4a3f9eedb6cef79f4b14"
+BLOFIN_SECRET     = "d6071650001642daba0b276fb4dfe96a"
+BLOFIN_PASSPHRASE = "yodamoney"
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  TRADING CONFIG  —  adjust these if needed
+# ─────────────────────────────────────────────────────────────────────────────
+SYMBOL             = "XAUUSDT:USDT"   # BloFin gold perpetual (ccxt format)
+TIMEFRAME          = "5m"
+RISK_PCT           = 0.02             # 2% of balance risked per trade
+RR_RATIO           = 3.0             # take profit = 3 × stop-loss distance
+ATR_SL_MULT        = 2.5             # stop = 2.5 × ATR(14) below/above entry
+MAX_DAILY_LOSS_PCT = 0.10            # stop all trading if down 10% on the day
+LEVERAGE           = 10              # set leverage on BloFin (10× = safe start)
+BAR_SECONDS        = 300             # 5 minutes per candle
+CANDLES_NEEDED     = 120             # history for indicators (10h on 5m)
+
+STRATEGY_CONFIG = {
+    "strategy": {
+        "session_filter": True,
+        "sessions": [
+            {"start": "07:00", "end": "10:00"},   # London open
+            {"start": "13:30", "end": "16:30"},   # NY open
+        ],
+        "consolidation_period":      20,
+        "consolidation_atr_mult":    0.6,
+        "squeeze_bb_period":         20,
+        "squeeze_bb_std":            2.0,
+        "squeeze_kc_mult":           1.5,
+        "min_squeeze_bars":          5,
+        "breakout_body_atr_mult":    0.8,
+        "breakout_body_candle_ratio":0.60,
+        "roc_fast":                  3,
+        "roc_slow":                  8,
+        "accel_threshold":           0.02,
+        "breakout_bars":             1,
+        "volume_mult":               1.3,
+        "ema_trend_period":          50,
+    },
+    "risk": {
+        "risk_per_trade":    RISK_PCT,
+        "atr_sl_mult":       ATR_SL_MULT,
+        "reward_risk_ratio": RR_RATIO,
+        "max_open_trades":   1,
+        "trailing_stop":     False,
+        "trailing_stop_pct": 0.003,
+    },
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  LOGGING
+# ─────────────────────────────────────────────────────────────────────────────
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(exist_ok=True)
+log_file = LOG_DIR / f"bot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(log_file),
+    ],
+)
+log = logging.getLogger("XAUBot")
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  TRADE JOURNAL  (CSV, one row per closed trade)
+# ─────────────────────────────────────────────────────────────────────────────
+JOURNAL_FILE = LOG_DIR / "trades.csv"
+JOURNAL_HEADERS = [
+    "date", "session", "direction", "entry", "sl", "tp",
+    "exit_price", "outcome", "qty", "gross_pnl", "commission", "net_pnl",
+    "balance_before", "balance_after", "signal_reason",
+]
+
+def journal_write(row: dict):
+    exists = JOURNAL_FILE.exists()
+    with open(JOURNAL_FILE, "a", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=JOURNAL_HEADERS)
+        if not exists:
+            w.writeheader()
+        w.writerow({k: row.get(k, "") for k in JOURNAL_HEADERS})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  EXCHANGE HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+def make_exchange() -> ccxt.blofin:
+    ex = ccxt.blofin({
+        "apiKey":   BLOFIN_KEY,
+        "secret":   BLOFIN_SECRET,
+        "password": BLOFIN_PASSPHRASE,
+        "options":  {"defaultType": "swap"},
+    })
+    ex.load_markets()
+    return ex
+
+
+def get_balance(ex: ccxt.blofin) -> float:
+    bal = ex.fetch_balance({"type": "swap"})
+    usdt = bal.get("USDT", {}).get("free", 0.0)
+    return float(usdt)
+
+
+def get_position(ex: ccxt.blofin) -> dict | None:
+    """Return open position dict or None."""
+    positions = ex.fetch_positions([SYMBOL])
+    for p in positions:
+        if abs(float(p.get("contracts", 0) or 0)) > 0:
+            return p
+    return None
+
+
+def fetch_candles(ex: ccxt.blofin, limit: int = CANDLES_NEEDED) -> pd.DataFrame:
+    raw = ex.fetch_ohlcv(SYMBOL, TIMEFRAME, limit=limit)
+    df  = pd.DataFrame(raw, columns=["ts", "open", "high", "low", "close", "volume"])
+    df.index = pd.to_datetime(df["ts"], unit="ms", utc=True)
+    df.drop(columns=["ts"], inplace=True)
+    return df.astype(float)
+
+
+def set_leverage(ex: ccxt.blofin, lev: int):
+    try:
+        ex.set_leverage(lev, SYMBOL)
+        log.info(f"Leverage set to {lev}×")
+    except Exception as e:
+        log.warning(f"Could not set leverage (may already be set): {e}")
+
+
+def place_entry(ex: ccxt.blofin, side: str, qty: float,
+                sl: float, tp: float, dry_run: bool) -> str | None:
+    """Place market entry + SL + TP orders. Returns order ID."""
+    log.info(f"{'[DRY RUN] ' if dry_run else ''}ENTRY {side.upper()} "
+             f"qty={qty:.5f}  SL={sl:.2f}  TP={tp:.2f}")
+    if dry_run:
+        return "DRY_RUN_ORDER"
+    try:
+        # Market entry
+        order = ex.create_market_order(
+            symbol=SYMBOL,
+            side=side,
+            amount=qty,
+            params={"reduceOnly": False},
+        )
+        order_id = order["id"]
+        log.info(f"Entry order filled  id={order_id}")
+
+        exit_side = "sell" if side == "buy" else "buy"
+
+        # Take-profit limit order (reduce-only)
+        ex.create_order(
+            symbol=SYMBOL,
+            type="limit",
+            side=exit_side,
+            amount=qty,
+            price=tp,
+            params={"reduceOnly": True, "clOrdId": f"TP_{order_id[:8]}"},
+        )
+        log.info(f"TP limit placed at {tp:.2f}")
+
+        # Stop-loss stop-market order (reduce-only)
+        ex.create_order(
+            symbol=SYMBOL,
+            type="stop_market",
+            side=exit_side,
+            amount=qty,
+            price=sl,
+            params={"stopPrice": sl, "reduceOnly": True,
+                    "clOrdId": f"SL_{order_id[:8]}"},
+        )
+        log.info(f"SL stop placed at  {sl:.2f}")
+
+        return order_id
+
+    except Exception as e:
+        log.error(f"Order placement failed: {e}")
+        return None
+
+
+def cancel_all_open_orders(ex: ccxt.blofin, dry_run: bool):
+    if dry_run:
+        return
+    try:
+        ex.cancel_all_orders(SYMBOL)
+        log.info("All pending orders cancelled")
+    except Exception as e:
+        log.warning(f"Cancel orders error: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  POSITION SIZING
+# ─────────────────────────────────────────────────────────────────────────────
+def calculate_qty(balance: float, entry: float, sl: float, ex: ccxt.blofin) -> float:
+    risk_amount = balance * RISK_PCT
+    sl_distance = abs(entry - sl)
+    if sl_distance <= 0:
+        return 0.0
+    qty = risk_amount / sl_distance
+
+    # Respect exchange limits
+    market  = ex.market(SYMBOL)
+    min_qty = market.get("limits", {}).get("amount", {}).get("min", 0.01)
+    max_qty = market.get("limits", {}).get("amount", {}).get("max", 1000.0)
+    qty     = max(min_qty, min(max_qty, qty))
+
+    precision = market.get("precision", {}).get("amount", 2)
+    qty = float(ex.amount_to_precision(SYMBOL, qty))
+    return qty
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SESSION CHECK
+# ─────────────────────────────────────────────────────────────────────────────
+def in_active_session() -> bool:
+    now     = datetime.now(timezone.utc)
+    minute  = now.hour * 60 + now.minute
+    sessions = [(7*60, 10*60), (13*60+30, 16*60+30)]
+    return any(s <= minute < e for s, e in sessions)
+
+
+def session_name() -> str:
+    now    = datetime.now(timezone.utc)
+    minute = now.hour * 60 + now.minute
+    if 7*60 <= minute < 10*60:
+        return "London"
+    if 13*60+30 <= minute < 16*60+30:
+        return "NY"
+    return "Closed"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  WAIT UNTIL NEXT BAR CLOSE
+# ─────────────────────────────────────────────────────────────────────────────
+def seconds_to_next_bar() -> float:
+    now = datetime.now(timezone.utc)
+    elapsed = (now.minute % 5) * 60 + now.second
+    wait    = BAR_SECONDS - elapsed + 5   # +5s buffer after bar closes
+    return max(wait, 1)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  MAIN BOT LOOP
+# ─────────────────────────────────────────────────────────────────────────────
+def run(dry_run: bool = False):
+    log.info("=" * 60)
+    log.info("  XAUUSD.P ACCELERATION BREAKOUT BOT — BloFin LIVE")
+    log.info(f"  Mode     : {'** DRY RUN — no real orders **' if dry_run else 'LIVE TRADING'}")
+    log.info(f"  Risk     : {RISK_PCT*100:.0f}% per trade  |  R:R {RR_RATIO:.0f}:1")
+    log.info(f"  Daily stop: {MAX_DAILY_LOSS_PCT*100:.0f}% max loss")
+    log.info("=" * 60)
+
+    strategy = AccelerationBreakoutStrategy(STRATEGY_CONFIG)
+
+    # ── Connect ────────────────────────────────────────────────────────────
+    log.info("Connecting to BloFin …")
+    ex = make_exchange()
+    log.info("Connected  ✓")
+
+    balance = get_balance(ex)
+    log.info(f"Account balance : ${balance:.4f} USDT")
+
+    if balance < 1.0 and not dry_run:
+        log.error("Balance below $1 — please deposit funds and restart.")
+        return
+
+    set_leverage(ex, LEVERAGE)
+
+    day_start_balance = balance
+    open_order_id     = None
+    open_side         = None
+    open_entry        = None
+    open_sl           = None
+    open_tp           = None
+    open_qty          = None
+    signal_reason     = ""
+
+    log.info("Bot running. Waiting for next 5m bar …\n")
+
+    while True:
+        try:
+            # ── Daily loss hard stop ───────────────────────────────────────
+            balance = get_balance(ex)
+            daily_loss = (balance - day_start_balance) / day_start_balance
+            if daily_loss <= -MAX_DAILY_LOSS_PCT:
+                log.warning(
+                    f"DAILY LOSS LIMIT HIT — down {daily_loss*100:.1f}% today. "
+                    f"Stopping all trading. Restart tomorrow."
+                )
+                cancel_all_open_orders(ex, dry_run)
+                break
+
+            now_utc = datetime.now(timezone.utc)
+
+            # ── Reset daily balance at midnight UTC ────────────────────────
+            if now_utc.hour == 0 and now_utc.minute < 6:
+                day_start_balance = balance
+                log.info(f"New trading day — reset start balance to ${balance:.4f}")
+
+            # ── Monitor open position ─────────────────────────────────────
+            position = get_position(ex)
+
+            if position is not None:
+                pnl     = float(position.get("unrealizedPnl", 0) or 0)
+                mark    = float(position.get("markPrice", 0) or 0)
+                log.info(
+                    f"[POSITION OPEN]  {open_side}  mark={mark:.2f}  "
+                    f"uPnL=${pnl:+.4f}  SL={open_sl:.2f}  TP={open_tp:.2f}"
+                )
+
+                # Check if TP or SL was hit (position closed automatically)
+            else:
+                if open_order_id is not None:
+                    # Position just closed
+                    balance = get_balance(ex)
+                    cancel_all_open_orders(ex, dry_run)
+                    outcome = "TP" if balance > (day_start_balance if open_order_id == "DRY_RUN_ORDER"
+                                                 else balance) else "SL"
+                    log.info(
+                        f"TRADE CLOSED  balance=${balance:.4f}  "
+                        f"day P&L ${balance - day_start_balance:+.4f}"
+                    )
+                    open_order_id = None
+                    open_side     = None
+
+            # ── Look for new signal (only if no position open) ─────────────
+            if open_order_id is None and in_active_session():
+                df = fetch_candles(ex)
+                if df is not None and len(df) >= 60:
+                    setup = strategy.generate_signal(df)
+                    if setup and setup.signal != Signal.NONE:
+                        balance = get_balance(ex)
+                        qty     = calculate_qty(balance, setup.entry,
+                                                setup.stop_loss, ex)
+                        if qty > 0:
+                            side = "buy" if setup.signal == Signal.LONG else "sell"
+                            oid  = place_entry(
+                                ex, side, qty,
+                                setup.stop_loss, setup.take_profit, dry_run
+                            )
+                            if oid:
+                                open_order_id = oid
+                                open_side     = side
+                                open_entry    = setup.entry
+                                open_sl       = setup.stop_loss
+                                open_tp       = setup.take_profit
+                                open_qty      = qty
+                                signal_reason = setup.reason
+                                log.info(
+                                    f"Signal: {setup.reason}\n"
+                                    f"  entry={setup.entry:.2f}  "
+                                    f"SL={setup.stop_loss:.2f}  "
+                                    f"TP={setup.take_profit:.2f}  qty={qty:.5f}"
+                                )
+                    else:
+                        log.info(
+                            f"[{session_name():6}] "
+                            f"{now_utc.strftime('%H:%M')} UTC — "
+                            f"No signal  |  balance=${balance:.4f}"
+                        )
+                else:
+                    log.info("Waiting for enough candle history …")
+
+            elif not in_active_session():
+                log.info(
+                    f"[CLOSED] {now_utc.strftime('%H:%M')} UTC — "
+                    f"Outside session. Next: London 07:00 or NY 13:30"
+                )
+
+            # ── Wait for next bar ─────────────────────────────────────────
+            wait = seconds_to_next_bar()
+            log.info(f"Next bar check in {wait:.0f}s …\n")
+            time.sleep(wait)
+
+        except KeyboardInterrupt:
+            log.info("Bot stopped by user.")
+            cancel_all_open_orders(ex, dry_run)
+            break
+
+        except ccxt.NetworkError as e:
+            log.warning(f"Network error — retrying in 30s: {e}")
+            time.sleep(30)
+
+        except ccxt.ExchangeError as e:
+            log.error(f"Exchange error: {e}")
+            time.sleep(30)
+
+        except Exception as e:
+            log.error(f"Unexpected error: {e}", exc_info=True)
+            time.sleep(30)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ENTRY POINT
+# ─────────────────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="XAUUSD.P BloFin Live Bot")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Simulate signals without placing real orders",
+    )
+    args = parser.parse_args()
+    run(dry_run=args.dry_run)
