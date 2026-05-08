@@ -311,14 +311,15 @@ def run(dry_run: bool = False):
 
     set_leverage(ex, LEVERAGE)
 
-    day_start_balance = balance
-    open_order_id     = None
-    open_side         = None
-    open_entry        = None
-    open_sl           = None
-    open_tp           = None
-    open_qty          = None
-    signal_reason     = ""
+    day_start_balance  = balance
+    open_order_id      = None
+    open_side          = None
+    open_entry         = None
+    open_sl            = None
+    open_tp            = None
+    open_qty           = None
+    balance_pre_trade  = None   # balance snapshot just before entry (for TP/SL detection)
+    signal_reason      = ""
 
     log.info("Bot running. Waiting for next 5m bar …\n")
 
@@ -356,17 +357,40 @@ def run(dry_run: bool = False):
                 # Check if TP or SL was hit (position closed automatically)
             else:
                 if open_order_id is not None:
-                    # Position just closed
-                    balance = get_balance(ex)
+                    # Position just closed — cancel the remaining SL or TP order
                     cancel_all_open_orders(ex, dry_run)
-                    outcome = "TP" if balance > (day_start_balance if open_order_id == "DRY_RUN_ORDER"
-                                                 else balance) else "SL"
+                    balance = get_balance(ex)
+                    # TP hit if balance rose vs pre-trade snapshot, SL hit if it fell
+                    outcome = "TP ✓" if (balance_pre_trade and balance > balance_pre_trade) else "SL ✗"
+                    trade_pnl = balance - balance_pre_trade if balance_pre_trade else 0
                     log.info(
-                        f"TRADE CLOSED  balance=${balance:.4f}  "
+                        f"TRADE CLOSED  {outcome}  "
+                        f"trade P&L ${trade_pnl:+.4f}  "
+                        f"balance=${balance:.4f}  "
                         f"day P&L ${balance - day_start_balance:+.4f}"
                     )
-                    open_order_id = None
-                    open_side     = None
+                    journal_write({
+                        "date":           datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"),
+                        "session":        session_name(),
+                        "direction":      open_side,
+                        "entry":          round(open_entry, 2) if open_entry else "",
+                        "sl":             round(open_sl, 2) if open_sl else "",
+                        "tp":             round(open_tp, 2) if open_tp else "",
+                        "exit_price":     "",
+                        "outcome":        outcome,
+                        "qty":            round(open_qty, 5) if open_qty else "",
+                        "net_pnl":        round(trade_pnl, 4),
+                        "balance_before": round(balance_pre_trade, 4) if balance_pre_trade else "",
+                        "balance_after":  round(balance, 4),
+                        "signal_reason":  signal_reason,
+                    })
+                    open_order_id     = None
+                    open_side         = None
+                    open_entry        = None
+                    open_sl           = None
+                    open_tp           = None
+                    open_qty          = None
+                    balance_pre_trade = None
 
             # ── Look for new signal (only if no position open) ─────────────
             if open_order_id is None and in_active_session():
@@ -379,18 +403,20 @@ def run(dry_run: bool = False):
                                                 setup.stop_loss, ex)
                         if qty > 0:
                             side = "buy" if setup.signal == Signal.LONG else "sell"
+                            pre  = get_balance(ex)
                             oid  = place_entry(
                                 ex, side, qty,
                                 setup.stop_loss, setup.take_profit, dry_run
                             )
                             if oid:
-                                open_order_id = oid
-                                open_side     = side
-                                open_entry    = setup.entry
-                                open_sl       = setup.stop_loss
-                                open_tp       = setup.take_profit
-                                open_qty      = qty
-                                signal_reason = setup.reason
+                                open_order_id     = oid
+                                open_side         = side
+                                open_entry        = setup.entry
+                                open_sl           = setup.stop_loss
+                                open_tp           = setup.take_profit
+                                open_qty          = qty
+                                balance_pre_trade = pre
+                                signal_reason     = setup.reason
                                 log.info(
                                     f"Signal: {setup.reason}\n"
                                     f"  entry={setup.entry:.2f}  "
