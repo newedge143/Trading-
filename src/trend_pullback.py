@@ -49,24 +49,24 @@ class TrendPullbackStrategy:
         s = config.get("strategy", {})
         self.htf_ema_period: int = s.get("htf_ema_period", 50)
         self.htf_slope_lookback: int = s.get("htf_slope_lookback", 5)
-        self.htf_slope_min_pct: float = s.get("htf_slope_min_pct", 0.001)  # 0.1%
+        self.htf_slope_min_pct: float = s.get("htf_slope_min_pct", 0.0005)  # 0.05% — catch more trends
 
         self.ema_fast: int = s.get("ema_fast", 20)
         self.ema_slow: int = s.get("ema_slow", 50)
-        self.pullback_lookback: int = s.get("pullback_lookback", 6)   # bars to look back for pullback
-        self.pullback_atr_mult: float = s.get("pullback_atr_mult", 0.3)  # how close to EMA20 counts as touch
+        self.pullback_lookback: int = s.get("pullback_lookback", 8)   # wider window
+        self.pullback_atr_mult: float = s.get("pullback_atr_mult", 0.5)  # more lenient touch
 
         self.rsi_period: int = s.get("rsi_period", 14)
-        self.rsi_long_min: float = s.get("rsi_long_min", 45)
-        self.rsi_long_max: float = s.get("rsi_long_max", 70)
-        self.rsi_short_min: float = s.get("rsi_short_min", 30)
-        self.rsi_short_max: float = s.get("rsi_short_max", 55)
+        self.rsi_long_min: float = s.get("rsi_long_min", 42)
+        self.rsi_long_max: float = s.get("rsi_long_max", 75)
+        self.rsi_short_min: float = s.get("rsi_short_min", 25)
+        self.rsi_short_max: float = s.get("rsi_short_max", 58)
 
-        self.volume_mult: float = s.get("volume_mult", 1.0)
+        self.volume_mult: float = s.get("volume_mult", 0.8)   # don't reject normal-volume entries
 
         r = config["risk"]
-        self.atr_sl_mult: float = r.get("atr_sl_mult", 1.5)
-        self.rr_ratio: float = r.get("reward_risk_ratio", 2.5)
+        self.atr_sl_mult: float = r.get("atr_sl_mult", 1.2)   # tighter stop
+        self.rr_ratio: float = r.get("reward_risk_ratio", 3.0)  # bigger TP, ride trends further
 
     def compute_indicators(self, df: pd.DataFrame, htf_df: pd.DataFrame) -> pd.DataFrame:
         """df is 5m, htf_df is 1h. Aligns 1h EMA back to 5m via ffill."""
@@ -124,7 +124,8 @@ class TrendPullbackStrategy:
         htf_up = htf_slope > self.htf_slope_min_pct
         uptrend_intermediate = close > ema_slow
         pullback_long = (window["low"] <= window["ema_fast"] + self.pullback_atr_mult * atr_v).any()
-        bounce_long = close > ema_fast and df.iloc[idx - 1]["close"] <= df.iloc[idx - 1]["ema_fast"] * 1.001
+        # Loosened bounce: just need close above EMA20 AND a prior bar in the window touched EMA20 area
+        bounce_long = close > ema_fast
 
         if (
             htf_up
@@ -155,7 +156,7 @@ class TrendPullbackStrategy:
         htf_down = htf_slope < -self.htf_slope_min_pct
         downtrend_intermediate = close < ema_slow
         pullback_short = (window["high"] >= window["ema_fast"] - self.pullback_atr_mult * atr_v).any()
-        bounce_short = close < ema_fast and df.iloc[idx - 1]["close"] >= df.iloc[idx - 1]["ema_fast"] * 0.999
+        bounce_short = close < ema_fast
 
         if (
             htf_down

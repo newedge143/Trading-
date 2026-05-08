@@ -34,23 +34,28 @@ CONFIG = {
     "strategy": {
         "htf_ema_period":     50,
         "htf_slope_lookback": 5,
-        "htf_slope_min_pct":  0.001,    # 0.1% slope = real trend
+        "htf_slope_min_pct":  0.0005,   # catches more trends
         "ema_fast":           20,
         "ema_slow":           50,
-        "pullback_lookback":  6,
-        "pullback_atr_mult":  0.3,
+        "pullback_lookback":  8,
+        "pullback_atr_mult":  0.5,
         "rsi_period":         14,
-        "rsi_long_min":       45,
-        "rsi_long_max":       70,
-        "rsi_short_min":      30,
-        "rsi_short_max":      55,
-        "volume_mult":        1.0,
+        "rsi_long_min":       42,
+        "rsi_long_max":       75,
+        "rsi_short_min":      25,
+        "rsi_short_max":      58,
+        "volume_mult":        0.8,
     },
     "risk": {
-        "atr_sl_mult":       1.5,
-        "reward_risk_ratio": 2.5,
+        "atr_sl_mult":       1.2,       # tighter stop
+        "reward_risk_ratio": 3.0,       # bigger TP target
     },
 }
+
+# Trailing stop config — once price moves favorably by trail_activate_rr × risk,
+# the SL ratchets to (entry - trail_distance × ATR) and follows the move
+TRAIL_ACTIVATE_RR    = 1.5    # activate trailing at 1.5×risk profit
+TRAIL_DISTANCE_ATR   = 1.5    # trail this far below the local high (longs)
 
 
 def resolve_symbol(ex, requested: str) -> str:
@@ -74,15 +79,39 @@ def fetch(ex, symbol: str, tf: str, limit: int) -> pd.DataFrame:
     return df.astype(float)
 
 
-def simulate_trade(df, entry_idx, signal, sl, tp):
+def simulate_trade(df, entry_idx, signal, entry_px, sl, tp, atr_at_entry):
+    """Walk forward with trailing stop. Returns (outcome, exit_price, bars_held)."""
+    initial_risk = abs(entry_px - sl)
+    activate_at  = entry_px + TRAIL_ACTIVATE_RR * initial_risk if signal == Signal.LONG \
+                   else entry_px - TRAIL_ACTIVATE_RR * initial_risk
+    trailing_active = False
+    trail_anchor    = entry_px   # local high (long) or low (short)
+
     for j in range(entry_idx + 1, len(df)):
         bar = df.iloc[j]
         if signal == Signal.LONG:
-            if bar["low"]  <= sl: return "SL", sl, j - entry_idx
-            if bar["high"] >= tp: return "TP", tp, j - entry_idx
-        else:
-            if bar["high"] >= sl: return "SL", sl, j - entry_idx
-            if bar["low"]  <= tp: return "TP", tp, j - entry_idx
+            # Update anchor and possibly the trailing SL
+            if bar["high"] >= activate_at:
+                trailing_active = True
+            if trailing_active:
+                trail_anchor = max(trail_anchor, bar["high"])
+                trail_sl = trail_anchor - TRAIL_DISTANCE_ATR * atr_at_entry
+                sl = max(sl, trail_sl)   # only ratchet up, never down
+            if bar["low"] <= sl:
+                return ("TP_TRAIL" if trailing_active else "SL"), sl, j - entry_idx
+            if not trailing_active and bar["high"] >= tp:
+                return "TP", tp, j - entry_idx
+        else:  # SHORT
+            if bar["low"] <= activate_at:
+                trailing_active = True
+            if trailing_active:
+                trail_anchor = min(trail_anchor, bar["low"])
+                trail_sl = trail_anchor + TRAIL_DISTANCE_ATR * atr_at_entry
+                sl = min(sl, trail_sl)
+            if bar["high"] >= sl:
+                return ("TP_TRAIL" if trailing_active else "SL"), sl, j - entry_idx
+            if not trailing_active and bar["low"] <= tp:
+                return "TP", tp, j - entry_idx
     return "OPEN", float(df.iloc[-1]["close"]), len(df) - entry_idx
 
 
@@ -140,14 +169,27 @@ def run_backtest(df, htf_df, market):
         pos_val = qty * entry_px * contract_sz
         comm    = pos_val * COMMISSION
 
-        outcome, exit_px, bars_held = simulate_trade(df, entry_idx, setup.signal, sl, tp)
+        # Need ATR at entry for the trailing-stop distance — use last bar's ATR
+        atr_at_entry = float(df.iloc[entry_idx - 1]["close"]) * 0  # placeholder, computed below
+        # The strategy already computed it on idx-2 (via compute_indicators); recompute quickly
+        from src.indicators import atr as _atr
+        atr_series = _atr(df["high"], df["low"], df["close"], 14)
+        atr_at_entry = float(atr_series.iloc[entry_idx - 1])
+        if pd.isna(atr_at_entry) or atr_at_entry <= 0:
+            atr_at_entry = sl_dist  # safe fallback
 
+        outcome, exit_px, bars_held = simulate_trade(
+            df, entry_idx, setup.signal, entry_px, sl, tp, atr_at_entry
+        )
+
+        direction = 1 if setup.signal == Signal.LONG else -1
         if outcome == "TP":
             gross = qty * tp_dist * contract_sz
         elif outcome == "SL":
             gross = -(qty * sl_dist * contract_sz)
+        elif outcome == "TP_TRAIL":
+            gross = qty * (exit_px - entry_px) * direction * contract_sz
         else:
-            direction = 1 if setup.signal == Signal.LONG else -1
             gross = qty * (exit_px - entry_px) * direction * contract_sz
 
         net_pnl = gross - comm
@@ -169,8 +211,9 @@ def run_backtest(df, htf_df, market):
 
 def display(trades, skipped, df, symbol):
     n = len(trades)
-    wins   = [t for t in trades if t["outcome"] == "TP"]
-    losses = [t for t in trades if t["outcome"] == "SL"]
+    wins   = [t for t in trades if t["outcome"] in ("TP", "TP_TRAIL") and t["net"] > 0]
+    losses = [t for t in trades if t["outcome"] == "SL" or
+              (t["outcome"] == "TP_TRAIL" and t["net"] <= 0)]
     opens  = [t for t in trades if t["outcome"] == "OPEN"]
 
     final  = trades[-1]["balance"] if trades else INITIAL
