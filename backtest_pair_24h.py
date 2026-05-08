@@ -112,10 +112,11 @@ def simulate_trade(df, entry_idx, signal, sl, tp):
 
 
 # ─── BACKTEST ENGINE ─────────────────────────────────────────────────────────
-def run_backtest(df: pd.DataFrame, market: dict) -> list[dict]:
+def run_backtest(df: pd.DataFrame, market: dict) -> tuple[list[dict], int]:
     strategy   = AccelerationBreakoutStrategy(STRATEGY_CONFIG)
     balance    = INITIAL
     trades     = []
+    skipped    = 0
     skip_until = 0
     min_amount = market.get("limits", {}).get("amount", {}).get("min") or 0.0
     contract_sz = float(market.get("contractSize") or 1.0)
@@ -152,12 +153,19 @@ def run_backtest(df: pd.DataFrame, market: dict) -> list[dict]:
             sl = entry_px + sl_dist
             tp = entry_px - tp_dist
 
-        # Position sizing — exactly how live_bot calculates
+        # Position sizing — same safety as fixed live_bot.calculate_qty
         risk_amt = balance * RISK_PCT
         qty      = risk_amt / sl_dist
+        # Cap by 10x leverage on current balance (no over-leverage)
+        max_qty_margin = (balance * 10) / (entry_px * contract_sz)
+        qty = min(qty, max_qty_margin)
+
         if min_amount and qty < min_amount:
-            # too small to actually trade on exchange
-            qty = min_amount   # take the minimum lot anyway (matches live bot behavior)
+            # Below exchange min lot. Skip trade — never force over-leverage.
+            skipped += 1
+            i += 1
+            continue
+
         pos_val = qty * entry_px * contract_sz
         comm    = pos_val * COMMISSION
 
@@ -198,11 +206,11 @@ def run_backtest(df: pd.DataFrame, market: dict) -> list[dict]:
         skip_until = entry_idx + bars_held + 1
         i = skip_until
 
-    return trades
+    return trades, skipped
 
 
 # ─── DISPLAY ─────────────────────────────────────────────────────────────────
-def display(trades, df, symbol):
+def display(trades, skipped, df, symbol):
     n      = len(trades)
     wins   = [t for t in trades if t["outcome"] == "TP"]
     losses = [t for t in trades if t["outcome"] == "SL"]
@@ -235,7 +243,8 @@ def display(trades, df, symbol):
     print(f"  Start balance   : ${INITIAL:>9.4f}")
     print(f"  End balance     : ${final:>9.4f}")
     print(f"  Net profit      : ${profit:>+9.4f}  ({growth:>+.2f}%)")
-    print(f"  Trades          : {n}  [{len(wins)} TP / {len(losses)} SL / {len(opens)} OPEN]")
+    print(f"  Trades taken    : {n}  [{len(wins)} TP / {len(losses)} SL / {len(opens)} OPEN]")
+    print(f"  Skipped (under-min): {skipped}  (account too small for these signals)")
     print(f"  Win rate        : {wr:.1f}%")
     print(f"  Commission paid : ${total_comm:.4f}")
     print(f"  Max drawdown    : {max_dd:.2f}%")
@@ -311,5 +320,5 @@ if __name__ == "__main__":
     print(f"  Min lot: {market.get('limits', {}).get('amount', {}).get('min')} contracts")
     print(f"  Running strategy on the last 24h ({min(1440, len(df))} bars) ...")
 
-    trades = run_backtest(df, market)
-    display(trades, df, symbol)
+    trades, skipped = run_backtest(df, market)
+    display(trades, skipped, df, symbol)

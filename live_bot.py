@@ -278,19 +278,38 @@ def cancel_all_open_orders(ex: ccxt.blofin, dry_run: bool):
 #  POSITION SIZING
 # ─────────────────────────────────────────────────────────────────────────────
 def calculate_qty(balance: float, entry: float, sl: float, ex: ccxt.blofin) -> float:
+    """
+    Position sizing with hard safety:
+      1. Risk exactly RISK_PCT of balance per trade.
+      2. If the resulting qty is below the exchange minimum lot, SKIP the trade
+         (return 0). Forcing a min-lot position when the account is small =
+         hidden over-leverage and can blow the account in one trade.
+      3. If the resulting qty exceeds what the account can margin at LEVERAGE,
+         skip the trade (over-leverage).
+    """
     risk_amount = balance * RISK_PCT
     sl_distance = abs(entry - sl)
     if sl_distance <= 0:
         return 0.0
     qty = risk_amount / sl_distance
 
-    # Respect exchange limits
     market  = ex.market(SYMBOL)
-    min_qty = market.get("limits", {}).get("amount", {}).get("min", 0.01)
-    max_qty = market.get("limits", {}).get("amount", {}).get("max", 1000.0)
-    qty     = max(min_qty, min(max_qty, qty))
+    contract_size = float(market.get("contractSize") or 1.0)
+    min_qty = market.get("limits", {}).get("amount", {}).get("min") or 0.0
+    max_qty = market.get("limits", {}).get("amount", {}).get("max") or 1e9
 
-    precision = market.get("precision", {}).get("amount", 2)
+    # Cap at available margin (prevent over-leverage even if exchange allows)
+    max_notional = balance * LEVERAGE
+    max_qty_by_margin = max_notional / (entry * contract_size)
+    qty = min(qty, max_qty_by_margin, max_qty)
+
+    if min_qty and qty < min_qty:
+        log.warning(
+            f"Skipping trade: qty {qty:.6f} below min lot {min_qty} for {SYMBOL}. "
+            f"Balance ${balance:.4f} too small for 2% risk on this pair."
+        )
+        return 0.0
+
     qty = float(ex.amount_to_precision(SYMBOL, qty))
     return qty
 
