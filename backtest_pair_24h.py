@@ -157,7 +157,7 @@ def run_backtest(df: pd.DataFrame, market: dict) -> tuple[list[dict], int]:
         risk_amt = balance * RISK_PCT
         qty      = risk_amt / sl_dist
         # Cap by 10x leverage on current balance (no over-leverage)
-        max_qty_margin = (balance * 10) / (entry_px * contract_sz)
+        max_qty_margin = (balance * 20) / (entry_px * contract_sz)
         qty = min(qty, max_qty_margin)
 
         if min_amount and qty < min_amount:

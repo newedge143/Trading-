@@ -129,7 +129,7 @@ def run_backtest(df: pd.DataFrame, market: dict):
 
         risk_amt = balance * RISK_PCT
         qty      = risk_amt / sl_dist
-        max_qty_margin = (balance * 10) / (entry_px * contract_sz)
+        max_qty_margin = (balance * 20) / (entry_px * contract_sz)
         qty = min(qty, max_qty_margin)
 
         if min_amount and qty < min_amount:

@@ -58,11 +58,11 @@ BLOFIN_PASSPHRASE = "yodamoney"
 # ─────────────────────────────────────────────────────────────────────────────
 SYMBOL             = os.environ.get("TRADING_PAIR", "DOGE/USDT:USDT")  # default DOGE; override with TRADING_PAIR env var
 TIMEFRAME          = "1m"
-RISK_PCT           = 0.50             # 50% of balance risked per trade (user override — extreme)
+RISK_PCT           = 0.50             # Default — overridden by adaptive_risk_pct() based on balance
 RR_RATIO           = 3.0             # take profit = 3 × stop-loss distance
 ATR_SL_MULT        = 2.5             # stop = 2.5 × ATR(14) below/above entry
 MAX_DAILY_LOSS_PCT = 0.10            # stop all trading if down 10% on the day
-LEVERAGE           = 10              # set leverage on BloFin (10× = safe start)
+LEVERAGE           = 20              # 20x — aggressive, ATR stop sized to stay clear of liquidation
 BAR_SECONDS        = 60              # 1 minute per candle
 CANDLES_NEEDED     = 200             # history for indicators (~3.3h on 1m)
 
@@ -282,17 +282,29 @@ def cancel_all_open_orders(ex: ccxt.blofin, dry_run: bool):
 # ─────────────────────────────────────────────────────────────────────────────
 #  POSITION SIZING
 # ─────────────────────────────────────────────────────────────────────────────
+def adaptive_risk_pct(balance: float) -> float:
+    """
+    Adaptive risk based on account size — aggressive when small, safe when grown.
+      < $50  : 50%   (small account, losses are pennies, swing for growth)
+      $50-100: 15%   (real money now, scale down)
+      $100+  : 5%    (capital preservation mode, compound steadily)
+    """
+    if balance < 50:
+        return 0.50
+    if balance < 100:
+        return 0.15
+    return 0.05
+
+
 def calculate_qty(balance: float, entry: float, sl: float, ex: ccxt.blofin) -> float:
     """
     Position sizing with hard safety:
-      1. Risk exactly RISK_PCT of balance per trade.
-      2. If the resulting qty is below the exchange minimum lot, SKIP the trade
-         (return 0). Forcing a min-lot position when the account is small =
-         hidden over-leverage and can blow the account in one trade.
-      3. If the resulting qty exceeds what the account can margin at LEVERAGE,
-         skip the trade (over-leverage).
+      1. Risk adaptive_risk_pct(balance) of balance per trade.
+      2. If qty is below exchange minimum lot, SKIP the trade (return 0).
+      3. If qty would exceed LEVERAGE margin cap, clamp it down.
     """
-    risk_amount = balance * RISK_PCT
+    risk_pct    = adaptive_risk_pct(balance)
+    risk_amount = balance * risk_pct
     sl_distance = abs(entry - sl)
     if sl_distance <= 0:
         return 0.0
@@ -311,7 +323,7 @@ def calculate_qty(balance: float, entry: float, sl: float, ex: ccxt.blofin) -> f
     if min_qty and qty < min_qty:
         log.warning(
             f"Skipping trade: qty {qty:.6f} below min lot {min_qty} for {SYMBOL}. "
-            f"Balance ${balance:.4f} too small for 2% risk on this pair."
+            f"Balance ${balance:.4f} too small for {risk_pct*100:.0f}% risk on this pair."
         )
         return 0.0
 
