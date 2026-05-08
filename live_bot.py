@@ -68,27 +68,32 @@ CANDLES_NEEDED     = 200             # history for indicators (~3.3h on 1m)
 
 STRATEGY_CONFIG = {
     "strategy": {
-        "session_filter": False,          # 24/7 — no session restrictions
-        "sessions":       [],
-        "consolidation_period":      10,   # 10-bar rolling high/low for breakout level
+        "session_filter":            False,  # 24/7
+        "sessions":                  [],
+        "consolidation_period":      10,     # 10-bar rolling high/low for breakout level
         "consolidation_atr_mult":    1.0,
-        "squeeze_bb_period":         20,
-        "squeeze_bb_std":            2.0,
-        "squeeze_kc_mult":           1.5,
-        "min_squeeze_bars":          5,    # real consolidation required
-        "require_squeeze":           True, # only fire after a true squeeze
-        "breakout_body_atr_mult":    0.7,  # strong breakout candle
-        "breakout_body_candle_ratio":0.55, # clean body, minimal wick
+        # Trend EMAs — EMA50 (intermediate) + EMA200 (macro ~3h on 1m)
+        "ema_fast_period":           50,
+        "ema_slow_period":           200,
+        # RSI filter — only trade when momentum is aligned, not exhausted
+        "rsi_period":                14,
+        "rsi_long_min":              50,     # RSI must be above 50 for longs
+        "rsi_long_max":              75,     # RSI must be below 75 (not overbought)
+        "rsi_short_min":             25,     # RSI must be above 25 (not oversold)
+        "rsi_short_max":             50,     # RSI must be below 50 for shorts
+        # Candle quality
+        "breakout_body_atr_mult":    0.5,
+        "breakout_body_candle_ratio":0.50,
+        # Momentum acceleration
         "roc_fast":                  3,
         "roc_slow":                  8,
-        "accel_threshold":           0.015, # 3x stricter momentum
-        "breakout_bars":             2,    # 2-bar confirmation, kills false breakouts
-        "volume_mult":               1.5,  # require real volume spike
-        "ema_trend_period":          50,
+        "accel_threshold":           0.008,
+        # Volume
+        "volume_mult":               1.3,
     },
     "risk": {
         "risk_per_trade":    RISK_PCT,
-        "atr_sl_mult":       ATR_SL_MULT,
+        "atr_sl_mult":       1.5,            # tight stop — exit fast when wrong
         "reward_risk_ratio": RR_RATIO,
         "max_open_trades":   1,
         "trailing_stop":     False,

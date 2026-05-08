@@ -1,5 +1,5 @@
 """
-Technical indicators for the Acceleration Breakout strategy.
+Technical indicators for the trading strategy.
 """
 
 import numpy as np
@@ -48,26 +48,14 @@ def bb_squeeze(
     bb_std: float = 2.0,
     kc_mult: float = 1.5,
 ) -> pd.Series:
-    """
-    True when BB bands are inside Keltner Channels (low-volatility squeeze).
-    This marks a period of tight consolidation.
-    """
+    """True when BB bands are inside Keltner Channels (low-volatility squeeze)."""
     bb_upper, _, bb_lower = bollinger_bands(close, bb_period, bb_std)
     kc_upper, _, kc_lower = keltner_channels(high, low, close, bb_period, kc_mult)
     return (bb_upper <= kc_upper) & (bb_lower >= kc_lower)
 
 
 def momentum_histogram(close: pd.Series, fast: int, slow: int) -> pd.Series:
-    """
-    Acceleration histogram: current fast ROC minus its own slow-period rolling mean.
-
-    This measures whether momentum is running ABOVE its recent baseline — it
-    spikes sharply positive on a genuine breakout regardless of the prior trend
-    direction, avoiding the sign-reversal problem of fast-ROC minus slow-ROC.
-
-    Positive = momentum is accelerating above its recent norm (bullish surge).
-    Negative = momentum is decelerating / dropping below its recent norm.
-    """
+    """Acceleration histogram: fast ROC minus its slow rolling mean."""
     fast_roc = roc(close, fast)
     baseline = fast_roc.rolling(slow).mean()
     return fast_roc - baseline
@@ -81,12 +69,8 @@ def consolidation_range(
     atr_mult: float = 0.5,
 ):
     """
-    Identify tight consolidation zones.
+    Shifted rolling high/low for breakout detection.
     Returns (in_consolidation, range_high, range_low).
-
-    Uses .shift(1) so the range is computed from PAST bars only, making it
-    possible for the CURRENT close to break above/below the stored range.
-    `in_consolidation` is True when the rolling range < atr_mult * ATR.
     """
     roll_high = high.rolling(period).max().shift(1)
     roll_low = low.rolling(period).min().shift(1)
@@ -101,12 +85,19 @@ def ema(close: pd.Series, period: int) -> pd.Series:
     return close.ewm(span=period, adjust=False).mean()
 
 
+def rsi(close: pd.Series, period: int = 14) -> pd.Series:
+    """Relative Strength Index."""
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, float("nan"))
+    return 100 - (100 / (1 + rs))
+
+
 def candle_body_ratio(open_: pd.Series, close: pd.Series, high: pd.Series, low: pd.Series):
-    """
-    Returns (body_size, body_ratio).
-    body_size  = abs(close - open)
-    body_ratio = body_size / (high - low), i.e. body as fraction of total candle range.
-    """
+    """Returns (body_size, body_ratio)."""
     body = (close - open_).abs()
     candle_range = (high - low).replace(0, float("nan"))
     return body, body / candle_range
