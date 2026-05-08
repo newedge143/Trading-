@@ -22,6 +22,7 @@ Run on YOUR OWN machine:
 """
 
 import sys
+import io
 import time
 import logging
 import csv
@@ -36,6 +37,11 @@ import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# Force UTF-8 output on Windows so Unicode log chars don't crash PowerShell
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
 sys.path.insert(0, str(Path(__file__).parent))
 from src.strategy import AccelerationBreakoutStrategy, Signal
 
@@ -49,7 +55,7 @@ BLOFIN_PASSPHRASE = "yodamoney"
 # ─────────────────────────────────────────────────────────────────────────────
 #  TRADING CONFIG  —  adjust these if needed
 # ─────────────────────────────────────────────────────────────────────────────
-SYMBOL             = "XAUUSDT:USDT"   # BloFin gold perpetual (ccxt format)
+SYMBOL             = "XAU/USDT:USDT"  # BloFin gold perpetual (ccxt format); auto-detected at startup
 TIMEFRAME          = "5m"
 RISK_PCT           = 0.02             # 2% of balance risked per trade
 RR_RATIO           = 3.0             # take profit = 3 × stop-loss distance
@@ -104,7 +110,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(log_file),
+        logging.FileHandler(log_file, encoding="utf-8"),
     ],
 )
 log = logging.getLogger("XAUBot")
@@ -131,7 +137,34 @@ def journal_write(row: dict):
 # ─────────────────────────────────────────────────────────────────────────────
 #  EXCHANGE HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
+def detect_symbol(ex: ccxt.blofin) -> str:
+    """Find the correct ccxt symbol for the BloFin XAU/Gold perpetual swap."""
+    candidates = [
+        "XAU/USDT:USDT",
+        "XAUUSDT:USDT",
+        "XAU/USDT",
+        "XAUUSDT",
+    ]
+    markets = ex.markets
+    for c in candidates:
+        if c in markets:
+            log.info(f"Gold symbol found: {c}")
+            return c
+    # Fallback: search by id containing XAU
+    for sym, mkt in markets.items():
+        base = (mkt.get("base") or "").upper()
+        mtype = (mkt.get("type") or "").lower()
+        if base == "XAU" and "swap" in mtype:
+            log.info(f"Gold symbol found (scan): {sym}")
+            return sym
+    raise RuntimeError(
+        "Cannot find XAU perpetual swap on BloFin. "
+        f"Available XAU markets: {[s for s in markets if 'XAU' in s.upper()]}"
+    )
+
+
 def make_exchange() -> ccxt.blofin:
+    global SYMBOL
     ex = ccxt.blofin({
         "apiKey":   BLOFIN_KEY,
         "secret":   BLOFIN_SECRET,
@@ -139,6 +172,7 @@ def make_exchange() -> ccxt.blofin:
         "options":  {"defaultType": "swap"},
     })
     ex.load_markets()
+    SYMBOL = detect_symbol(ex)
     return ex
 
 
@@ -168,7 +202,7 @@ def fetch_candles(ex: ccxt.blofin, limit: int = CANDLES_NEEDED) -> pd.DataFrame:
 def set_leverage(ex: ccxt.blofin, lev: int):
     try:
         ex.set_leverage(lev, SYMBOL)
-        log.info(f"Leverage set to {lev}×")
+        log.info(f"Leverage set to {lev}x")
     except Exception as e:
         log.warning(f"Could not set leverage (may already be set): {e}")
 
@@ -289,8 +323,8 @@ def seconds_to_next_bar() -> float:
 # ─────────────────────────────────────────────────────────────────────────────
 def run(dry_run: bool = False):
     log.info("=" * 60)
-    log.info("  XAUUSD.P ACCELERATION BREAKOUT BOT — BloFin LIVE")
-    log.info(f"  Mode     : {'** DRY RUN — no real orders **' if dry_run else 'LIVE TRADING'}")
+    log.info("  XAUUSD.P ACCELERATION BREAKOUT BOT - BloFin LIVE")
+    log.info(f"  Mode     : {'** DRY RUN - no real orders **' if dry_run else 'LIVE TRADING'}")
     log.info(f"  Risk     : {RISK_PCT*100:.0f}% per trade  |  R:R {RR_RATIO:.0f}:1")
     log.info(f"  Daily stop: {MAX_DAILY_LOSS_PCT*100:.0f}% max loss")
     log.info("=" * 60)
@@ -298,15 +332,15 @@ def run(dry_run: bool = False):
     strategy = AccelerationBreakoutStrategy(STRATEGY_CONFIG)
 
     # ── Connect ────────────────────────────────────────────────────────────
-    log.info("Connecting to BloFin …")
+    log.info("Connecting to BloFin ...")
     ex = make_exchange()
-    log.info("Connected  ✓")
+    log.info("Connected  [OK]")
 
     balance = get_balance(ex)
     log.info(f"Account balance : ${balance:.4f} USDT")
 
     if balance < 1.0 and not dry_run:
-        log.error("Balance below $1 — please deposit funds and restart.")
+        log.error("Balance below $1 - please deposit funds and restart.")
         return
 
     set_leverage(ex, LEVERAGE)
@@ -321,7 +355,7 @@ def run(dry_run: bool = False):
     balance_pre_trade  = None   # balance snapshot just before entry (for TP/SL detection)
     signal_reason      = ""
 
-    log.info("Bot running. Waiting for next 5m bar …\n")
+    log.info("Bot running. Waiting for next 5m bar ...\n")
 
     while True:
         try:
@@ -341,7 +375,7 @@ def run(dry_run: bool = False):
             # ── Reset daily balance at midnight UTC ────────────────────────
             if now_utc.hour == 0 and now_utc.minute < 6:
                 day_start_balance = balance
-                log.info(f"New trading day — reset start balance to ${balance:.4f}")
+                log.info(f"New trading day - reset start balance to ${balance:.4f}")
 
             # ── Monitor open position ─────────────────────────────────────
             position = get_position(ex)
@@ -361,7 +395,7 @@ def run(dry_run: bool = False):
                     cancel_all_open_orders(ex, dry_run)
                     balance = get_balance(ex)
                     # TP hit if balance rose vs pre-trade snapshot, SL hit if it fell
-                    outcome = "TP ✓" if (balance_pre_trade and balance > balance_pre_trade) else "SL ✗"
+                    outcome = "TP [WIN]" if (balance_pre_trade and balance > balance_pre_trade) else "SL [LOSS]"
                     trade_pnl = balance - balance_pre_trade if balance_pre_trade else 0
                     log.info(
                         f"TRADE CLOSED  {outcome}  "
@@ -430,7 +464,7 @@ def run(dry_run: bool = False):
                             f"No signal  |  balance=${balance:.4f}"
                         )
                 else:
-                    log.info("Waiting for enough candle history …")
+                    log.info("Waiting for enough candle history ...")
 
             elif not in_active_session():
                 log.info(
@@ -440,7 +474,7 @@ def run(dry_run: bool = False):
 
             # ── Wait for next bar ─────────────────────────────────────────
             wait = seconds_to_next_bar()
-            log.info(f"Next bar check in {wait:.0f}s …\n")
+            log.info(f"Next bar check in {wait:.0f}s ...\n")
             time.sleep(wait)
 
         except KeyboardInterrupt:
@@ -449,7 +483,7 @@ def run(dry_run: bool = False):
             break
 
         except ccxt.NetworkError as e:
-            log.warning(f"Network error — retrying in 30s: {e}")
+            log.warning(f"Network error - retrying in 30s: {e}")
             time.sleep(30)
 
         except ccxt.ExchangeError as e:
