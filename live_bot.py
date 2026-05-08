@@ -355,7 +355,7 @@ def run(dry_run: bool = False):
     balance_pre_trade  = None   # balance snapshot just before entry (for TP/SL detection)
     signal_reason      = ""
 
-    log.info("Bot running. Waiting for next 5m bar ...\n")
+    log.info("Bot running. Waiting for next 1m bar ...\n")
 
     while True:
         try:
