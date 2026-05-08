@@ -75,15 +75,15 @@ STRATEGY_CONFIG = {
         "squeeze_bb_period":         20,
         "squeeze_bb_std":            2.0,
         "squeeze_kc_mult":           1.5,
-        "min_squeeze_bars":          2,
-        "require_squeeze":           False, # fire on ANY momentum breakout, not just squeeze
-        "breakout_body_atr_mult":    0.3,  # small body ok
-        "breakout_body_candle_ratio":0.40, # 40% body ratio
+        "min_squeeze_bars":          5,    # real consolidation required
+        "require_squeeze":           True, # only fire after a true squeeze
+        "breakout_body_atr_mult":    0.7,  # strong breakout candle
+        "breakout_body_candle_ratio":0.55, # clean body, minimal wick
         "roc_fast":                  3,
         "roc_slow":                  8,
-        "accel_threshold":           0.005, # very sensitive momentum
-        "breakout_bars":             1,
-        "volume_mult":               1.0,  # no volume gate
+        "accel_threshold":           0.015, # 3x stricter momentum
+        "breakout_bars":             2,    # 2-bar confirmation, kills false breakouts
+        "volume_mult":               1.5,  # require real volume spike
         "ema_trend_period":          50,
     },
     "risk": {
