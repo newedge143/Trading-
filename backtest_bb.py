@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""
+Backtest the BB-Reversion strategy on REAL BloFin 5m candles.
+
+Key differences from previous backtests:
+  - 5m timeframe (not 1m): bigger moves per signal, less fee drag
+  - MAKER fees only: 0.04% RT (not taker 0.12%) — we'll only use limit entries live
+  - BB mean-reversion entry: enters when statistically oversold/overbought, not on breakouts
+  - ADX < 25 regime gate: only trades chop, never trends
+
+Usage:
+  python3 backtest_bb.py
+  TRADING_PAIR=ONDO/USDT:USDT python3 backtest_bb.py
+  TRADING_PAIR=DOGE/USDT:USDT python3 backtest_bb.py
+"""
+
+import os
+import sys
+import io
+from pathlib import Path
+
+import ccxt
+import pandas as pd
+
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+
+sys.path.insert(0, str(Path(__file__).parent))
+from src.bb_reversion import BBReversionStrategy, Signal
+
+INITIAL    = 10.00
+RISK_PCT   = 0.05      # 5% per trade — scaled to small account
+COMMISSION = 0.0004    # 0.04% RT MAKER (limit entry + limit exit when possible)
+SYMBOL_REQ = os.environ.get("TRADING_PAIR", "ONDO/USDT:USDT")
+TIMEFRAME  = "5m"
+W = 80
+
+CONFIG = {
+    "strategy": {
+        "bb_period":      20,
+        "bb_std":         2.0,
+        "rsi_period":     14,
+        "rsi_oversold":   28.0,
+        "rsi_overbought": 72.0,
+        "adx_period":     14,
+        "adx_max":        25.0,    # trend gate — skip if ADX > 25
+        "volume_mult":    1.0,
+    },
+    "risk": {
+        "sl_pct":      0.012,      # 1.2% hard stop beyond the band
+        "tp_target":   "mid_bb",   # target the middle BB (the 20-SMA)
+        "tp_pct":      0.015,
+    },
+}
+
+
+def resolve_symbol(ex, requested: str) -> str:
+    if requested in ex.markets:
+        return requested
+    base = requested.split("/")[0].split(":")[0].split("USDT")[0].upper()
+    for c in [f"{base}/USDT:USDT", f"{base}USDT:USDT", f"{base}/USDT", f"{base}USDT"]:
+        if c in ex.markets:
+            return c
+    for sym, mkt in ex.markets.items():
+        if (mkt.get("base") or "").upper() == base and "swap" in (mkt.get("type") or "").lower():
+            return sym
+    raise RuntimeError(f"No market for {requested}")
+
+
+def fetch_history(ex, symbol: str) -> pd.DataFrame:
+    # 1500 bars of 5m = 5.2 days of history (warmup + 24h test window)
+    raw = ex.fetch_ohlcv(symbol, TIMEFRAME, limit=1500)
+    df  = pd.DataFrame(raw, columns=["ts", "open", "high", "low", "close", "volume"])
+    df.index = pd.to_datetime(df["ts"], unit="ms", utc=True)
+    df.drop(columns=["ts"], inplace=True)
+    return df.astype(float)
+
+
+def simulate_trade(df, entry_idx, signal, sl, tp):
+    for j in range(entry_idx + 1, len(df)):
+        bar = df.iloc[j]
+        if signal == Signal.LONG:
+            if bar["low"]  <= sl: return "SL", sl, j - entry_idx
+            if bar["high"] >= tp: return "TP", tp, j - entry_idx
+        else:
+            if bar["high"] >= sl: return "SL", sl, j - entry_idx
+            if bar["low"]  <= tp: return "TP", tp, j - entry_idx
+    return "OPEN", float(df.iloc[-1]["close"]), len(df) - entry_idx
+
+
+def run_backtest(df, market):
+    strategy   = BBReversionStrategy(CONFIG)
+    balance    = INITIAL
+    trades     = []
+    skipped    = 0
+    skip_until = 0
+    min_amount  = market.get("limits", {}).get("amount", {}).get("min") or 0.0
+    contract_sz = float(market.get("contractSize") or 1.0)
+
+    bars_24h = int(24 * 60 / 5)   # 288 bars/day at 5m
+    warmup   = max(60, len(df) - bars_24h)
+
+    i = warmup
+    while i < len(df) - 1:
+        if i < skip_until:
+            i += 1
+            continue
+
+        setup = strategy.generate_signal(df.iloc[: i + 1])
+        if setup is None or setup.signal == Signal.NONE:
+            i += 1
+            continue
+
+        entry_idx = i + 1
+        if entry_idx >= len(df):
+            break
+        entry_px = float(df.iloc[entry_idx]["open"])
+
+        sl_dist = abs(setup.entry - setup.stop_loss)
+        tp_dist = abs(setup.take_profit - setup.entry)
+        if sl_dist <= 0 or tp_dist <= 0:
+            i += 1
+            continue
+
+        if setup.signal == Signal.LONG:
+            sl = entry_px - sl_dist
+            tp = entry_px + tp_dist
+        else:
+            sl = entry_px + sl_dist
+            tp = entry_px - tp_dist
+
+        risk_amt = balance * RISK_PCT
+        qty      = risk_amt / sl_dist
+        max_qty_margin = (balance * 20) / (entry_px * contract_sz)
+        qty = min(qty, max_qty_margin)
+
+        if min_amount and qty < min_amount:
+            skipped += 1
+            i += 1
+            continue
+
+        pos_val = qty * entry_px * contract_sz
+        comm    = pos_val * COMMISSION
+
+        outcome, exit_px, bars_held = simulate_trade(df, entry_idx, setup.signal, sl, tp)
+
+        if outcome == "TP":
+            gross = qty * tp_dist * contract_sz
+        elif outcome == "SL":
+            gross = -(qty * sl_dist * contract_sz)
+        else:
+            direction = 1 if setup.signal == Signal.LONG else -1
+            gross = qty * (exit_px - entry_px) * direction * contract_sz
+
+        net_pnl = gross - comm
+        balance = max(balance + net_pnl, 0.001)
+
+        trades.append({
+            "n": len(trades) + 1, "ts": df.index[entry_idx],
+            "dir": "LONG" if setup.signal == Signal.LONG else "SHORT",
+            "entry": entry_px, "exit": exit_px, "outcome": outcome,
+            "comm": comm, "net": net_pnl, "balance": balance,
+            "bars": bars_held, "minutes": bars_held * 5,
+            "reason": setup.reason,
+        })
+
+        skip_until = entry_idx + bars_held + 1
+        i = skip_until
+
+    return trades, skipped
+
+
+def display(trades, skipped, df, symbol):
+    n = len(trades)
+    wins   = [t for t in trades if t["outcome"] == "TP"]
+    losses = [t for t in trades if t["outcome"] == "SL"]
+    opens  = [t for t in trades if t["outcome"] == "OPEN"]
+
+    final  = trades[-1]["balance"] if trades else INITIAL
+    profit = final - INITIAL
+    growth = profit / INITIAL * 100
+    wr     = len(wins) / n * 100 if n else 0
+    total_comm = sum(t["comm"] for t in trades)
+
+    peak, max_dd = INITIAL, 0.0
+    for t in trades:
+        peak   = max(peak, t["balance"])
+        max_dd = min(max_dd, (t["balance"] - peak) / peak * 100)
+
+    bars_24h = int(24 * 60 / 5)
+    start_ts = df.index[max(60, len(df) - bars_24h)]
+    end_ts   = df.index[-1]
+
+    print()
+    print("=" * W)
+    print(f"  BB-REVERSION 5m BACKTEST  --  {symbol}")
+    print("=" * W)
+    print(f"  Period    : {start_ts.strftime('%a %d %b  %H:%M')} UTC  ->  "
+          f"{end_ts.strftime('%a %d %b  %H:%M')} UTC")
+    print(f"  Strategy  : Bollinger lower-band + RSI<28 + ADX<25 (mean-revert in chop only)")
+    print(f"  Risk      : {RISK_PCT*100:.0f}%/trade  |  Maker fees 0.04% RT  |  Lev 20x cap")
+    print(f"  Exits     : TP @ middle BB (the SMA)  |  SL = 1.2% from entry")
+    print("-" * W)
+    print(f"  Start balance   : ${INITIAL:>9.4f}")
+    print(f"  End balance     : ${final:>9.4f}")
+    print(f"  Net profit      : ${profit:>+9.4f}  ({growth:+.2f}%)")
+    print(f"  Trades taken    : {n}  [{len(wins)} TP / {len(losses)} SL / {len(opens)} OPEN]")
+    print(f"  Skipped (under-min): {skipped}")
+    print(f"  Win rate        : {wr:.1f}%")
+    print(f"  Commission paid : ${total_comm:.4f}")
+    print(f"  Max drawdown    : {max_dd:.2f}%")
+    print("=" * W)
+
+    if trades:
+        print()
+        print(f"  {'#':<4} {'Time':<13} {'Dir':<6} {'Entry':>11} {'Exit':>11} "
+              f"{'Net':>9} {'Bal':>9} {'Held':>5}")
+        print("  " + "-" * (W - 2))
+        for t in trades:
+            print(f"  {t['n']:<4} {t['ts'].strftime('%d %H:%M'):<13} {t['dir']:<6} "
+                  f"{t['entry']:>11.6f} {t['exit']:>11.6f} "
+                  f"${t['net']:>+8.4f} ${t['balance']:>7.4f} {t['minutes']:>4}m  {t['outcome']}")
+
+    print()
+    print("=" * W)
+    print("  RISK METRICS")
+    print("-" * W)
+    if wins:
+        avg_win = sum(t["net"] for t in wins) / len(wins)
+        print(f"  Avg win        : ${avg_win:+.4f}")
+    if losses:
+        avg_loss = sum(t["net"] for t in losses) / len(losses)
+        print(f"  Avg loss       : ${avg_loss:+.4f}")
+    if wins and losses:
+        gross_win  = sum(t["net"] for t in wins)
+        gross_loss = abs(sum(t["net"] for t in losses))
+        pf = gross_win / gross_loss if gross_loss else 0
+        print(f"  Profit factor  : {pf:.2f}x")
+    if n:
+        ev = sum(t["net"] for t in trades) / n
+        print(f"  Expected value : ${ev:+.4f}/trade")
+    print(f"  Trades/day     : {n}")
+    print("=" * W)
+
+
+def main():
+    print(f"\n  Connecting to BloFin to fetch real {SYMBOL_REQ} 5m candles ...")
+    ex = ccxt.blofin({"options": {"defaultType": "swap"}})
+    ex.load_markets()
+    sym = resolve_symbol(ex, SYMBOL_REQ)
+    print(f"  Resolved symbol: {sym}")
+    df = fetch_history(ex, sym)
+    print(f"  Got {len(df)} 5m candles  |  latest close: {df['close'].iloc[-1]}")
+    market = ex.market(sym)
+    print(f"  Min lot: {market.get('limits', {}).get('amount', {}).get('min')} contracts")
+    print(f"  Running BB-Reversion strategy on the last 24h ...")
+    trades, skipped = run_backtest(df, market)
+    display(trades, skipped, df, sym)
+
+
+if __name__ == "__main__":
+    main()
