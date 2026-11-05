@@ -1,0 +1,79 @@
+{
+  "exchange": "bybit",
+  "endpoint": "https://api.bybit.com",
+  "interval": "1h",
+  "requested_fetch_window": [
+    "2026-08-25T00:00:00Z",
+    "2026-11-04T00:00:00Z"
+  ],
+  "required_test_window": [
+    "2026-11-02T00:00:00Z",
+    "2026-11-04T00:00:00Z"
+  ],
+  "retrieval_started_utc": "2026-11-05T02:27:17.326424+00:00",
+  "files": [],
+  "errors": [
+    {
+      "symbol": "BTCUSDT",
+      "kind": "klines",
+      "error": "https://api.bybit.com/v5/market/kline: ProxyError: HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=BTCUSDT&interval=60&start=1787616000000&end=1793750399999&limit=1000 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "kind": "funding",
+      "error": "https://api.bybit.com/v5/market/funding/history: ProxyError: HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/funding/history?category=linear&symbol=BTCUSDT&startTime=1787616000000&endTime=1793750399999&limit=200 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "kind": "klines",
+      "error": "https://api.bybit.com/v5/market/kline: ProxyError: HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ETHUSDT&interval=60&start=1787616000000&end=1793750399999&limit=1000 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "kind": "funding",
+      "error": "https://api.bybit.com/v5/market/funding/history: ProxyError: HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/funding/history?category=linear&symbol=ETHUSDT&startTime=1787616000000&endTime=1793750399999&limit=200 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    },
+    {
+      "symbol": "SOLUSDT",
+      "kind": "klines",
+      "error": "https://api.bybit.com/v5/market/kline: ProxyError: HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=SOLUSDT&interval=60&start=1787616000000&end=1793750399999&limit=1000 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    },
+    {
+      "symbol": "SOLUSDT",
+      "kind": "funding",
+      "error": "https://api.bybit.com/v5/market/funding/history: ProxyError: HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/funding/history?category=linear&symbol=SOLUSDT&startTime=1787616000000&endTime=1793750399999&limit=200 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    }
+  ],
+  "coverage": {
+    "BTCUSDT": {
+      "test_window_missing_intervals": [
+        [
+          "2026-11-02T00:00:00Z",
+          "2026-11-04T00:00:00Z"
+        ]
+      ],
+      "complete": false
+    },
+    "ETHUSDT": {
+      "test_window_missing_intervals": [
+        [
+          "2026-11-02T00:00:00Z",
+          "2026-11-04T00:00:00Z"
+        ]
+      ],
+      "complete": false
+    },
+    "SOLUSDT": {
+      "test_window_missing_intervals": [
+        [
+          "2026-11-02T00:00:00Z",
+          "2026-11-04T00:00:00Z"
+        ]
+      ],
+      "complete": false
+    }
+  },
+  "contract_specs_source": "tradinggym.config.DEFAULT_SPECS (documented assumptions)",
+  "retrieval_finished_utc": "2026-11-05T02:27:57.100104+00:00",
+  "live_trading_enabled": false
+}

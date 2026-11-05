@@ -1,0 +1,7 @@
+# Dependencies for the tradinggym research backtester (run_48h_backtest.py)
+pandas>=2.2
+numpy>=1.26
+requests>=2.31
+matplotlib>=3.8
+tabulate>=0.9
+pytest>=8.0

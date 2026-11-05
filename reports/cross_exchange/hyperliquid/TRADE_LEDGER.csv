@@ -1,0 +1,1 @@
+experiment,trade_id,symbol,side,entry_time,entry_price,exit_time,exit_price,max_qty,entry_notional,gross_pnl,fees,funding,spread_cost,slippage_cost,net_pnl,exit_reason

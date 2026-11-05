@@ -1,0 +1,78 @@
+{
+  "exchange": "hyperliquid",
+  "endpoint": "https://api.hyperliquid.xyz/info",
+  "interval": "1h",
+  "requested_fetch_window": [
+    "2026-08-25T00:00:00Z",
+    "2026-11-04T00:00:00Z"
+  ],
+  "required_test_window": [
+    "2026-11-02T00:00:00Z",
+    "2026-11-04T00:00:00Z"
+  ],
+  "retrieval_started_utc": "2026-11-05T02:27:57.465009+00:00",
+  "files": [],
+  "errors": [
+    {
+      "symbol": "BTCUSDT",
+      "kind": "klines",
+      "error": "https://api.hyperliquid.xyz/info: ProxyError: HTTPSConnectionPool(host='api.hyperliquid.xyz', port=443): Max retries exceeded with url: /info (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "kind": "funding",
+      "error": "https://api.hyperliquid.xyz/info: ProxyError: HTTPSConnectionPool(host='api.hyperliquid.xyz', port=443): Max retries exceeded with url: /info (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "kind": "klines",
+      "error": "https://api.hyperliquid.xyz/info: ProxyError: HTTPSConnectionPool(host='api.hyperliquid.xyz', port=443): Max retries exceeded with url: /info (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "kind": "funding",
+      "error": "https://api.hyperliquid.xyz/info: ProxyError: HTTPSConnectionPool(host='api.hyperliquid.xyz', port=443): Max retries exceeded with url: /info (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    },
+    {
+      "symbol": "SOLUSDT",
+      "kind": "klines",
+      "error": "https://api.hyperliquid.xyz/info: ProxyError: HTTPSConnectionPool(host='api.hyperliquid.xyz', port=443): Max retries exceeded with url: /info (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    },
+    {
+      "symbol": "SOLUSDT",
+      "kind": "funding",
+      "error": "https://api.hyperliquid.xyz/info: ProxyError: HTTPSConnectionPool(host='api.hyperliquid.xyz', port=443): Max retries exceeded with url: /info (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    }
+  ],
+  "coverage": {
+    "BTCUSDT": {
+      "test_window_missing_intervals": [
+        [
+          "2026-11-02T00:00:00Z",
+          "2026-11-04T00:00:00Z"
+        ]
+      ],
+      "complete": false
+    },
+    "ETHUSDT": {
+      "test_window_missing_intervals": [
+        [
+          "2026-11-02T00:00:00Z",
+          "2026-11-04T00:00:00Z"
+        ]
+      ],
+      "complete": false
+    },
+    "SOLUSDT": {
+      "test_window_missing_intervals": [
+        [
+          "2026-11-02T00:00:00Z",
+          "2026-11-04T00:00:00Z"
+        ]
+      ],
+      "complete": false
+    }
+  },
+  "contract_specs_source": "tradinggym.config.DEFAULT_SPECS (documented assumptions)",
+  "retrieval_finished_utc": "2026-11-05T02:28:36.818199+00:00"
+}
