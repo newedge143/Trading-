@@ -1,0 +1,123 @@
+{
+  "initial_capital": 100.0,
+  "target_equity": 1100.0,
+  "start": "2026-11-03T00:00:00Z",
+  "end": "2026-11-05T00:00:00Z",
+  "exchange": "binance",
+  "strategy": {
+    "name": "momentum_funding_v1",
+    "mode": "reproduction",
+    "universe": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT"
+    ],
+    "bar_interval": "1h",
+    "momentum_lookback_hours": 336,
+    "momentum_weight": 0.7,
+    "funding_weight": 0.3,
+    "funding_lookback_events": 9,
+    "rebalance_drift": 0.2,
+    "allow_short": true
+  },
+  "risk": {
+    "max_leverage": 10.0,
+    "sizing": "equity",
+    "exposure_utilisation": 1.0,
+    "max_positions": 3,
+    "max_position_weight": 0.6,
+    "stop_loss_pct": 0.05,
+    "stop_cooldown_bars": 8,
+    "daily_loss_limit": 0.25,
+    "max_drawdown_limit": 0.5,
+    "funding_filter_8h": 0.001,
+    "min_quote_volume_24h": 50000000.0
+  },
+  "costs": {
+    "taker_fee": 0.0005,
+    "maker_fee": 0.0002,
+    "use_maker": false,
+    "fee_multiplier": 1.0,
+    "slippage_multiplier": 1.0,
+    "spread_multiplier": 1.0,
+    "adverse_funding": false,
+    "liquidation_fee": 0.005,
+    "max_bar_participation": 0.01
+  },
+  "live_trading_enabled": false,
+  "experiments": {
+    "A": {
+      "max_leverage": 1.0
+    },
+    "B": {
+      "max_leverage": 2.0
+    },
+    "C": {
+      "max_leverage": 5.0
+    },
+    "D": {
+      "max_leverage": 10.0
+    }
+  },
+  "sizing_modes": [
+    "equity",
+    "fixed_notional"
+  ],
+  "stress_test": {
+    "fee_multiplier": 2.0,
+    "slippage_multiplier": 2.0,
+    "spread_multiplier": 2.0,
+    "adverse_funding": true
+  },
+  "walk_forward": {
+    "train": [
+      "2026-09-22T00:00:00Z",
+      "2026-10-19T00:00:00Z"
+    ],
+    "validation": [
+      "2026-10-19T00:00:00Z",
+      "2026-11-02T00:00:00Z"
+    ],
+    "test": [
+      "2026-11-03T00:00:00Z",
+      "2026-11-05T00:00:00Z"
+    ]
+  },
+  "contract_specs_defaults": {
+    "BTCUSDT": {
+      "symbol": "BTCUSDT",
+      "tick_size": 0.1,
+      "lot_step": 0.001,
+      "min_qty": 0.001,
+      "min_notional": 100.0,
+      "maintenance_margin_rate": 0.004,
+      "max_leverage": 20.0,
+      "half_spread_bps": 0.5,
+      "slippage_bps": 1.0
+    },
+    "ETHUSDT": {
+      "symbol": "ETHUSDT",
+      "tick_size": 0.01,
+      "lot_step": 0.001,
+      "min_qty": 0.001,
+      "min_notional": 20.0,
+      "maintenance_margin_rate": 0.004,
+      "max_leverage": 20.0,
+      "half_spread_bps": 0.5,
+      "slippage_bps": 1.5
+    },
+    "SOLUSDT": {
+      "symbol": "SOLUSDT",
+      "tick_size": 0.01,
+      "lot_step": 1.0,
+      "min_qty": 1.0,
+      "min_notional": 5.0,
+      "maintenance_margin_rate": 0.005,
+      "max_leverage": 20.0,
+      "half_spread_bps": 1.0,
+      "slippage_bps": 3.0
+    }
+  },
+  "reproduction_status": "UNVERIFIED: parameters (14d momentum, 70/30 momentum/funding, 20% drift rebalance) are the proposed configuration from the task brief. The original publication was not retrieved, so this is NOT claimed to be an exact reproduction.",
+  "status": "NOT_EXECUTED_DATA_UNAVAILABLE"
+}

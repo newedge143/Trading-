@@ -165,12 +165,16 @@ def main():
     ap.add_argument("--reports", default=str(ROOT / "reports"))
     ap.add_argument("--offline", action="store_true", help="use local CSVs only")
     ap.add_argument("--symbols", default="BTCUSDT,ETHUSDT,SOLUSDT")
+    ap.add_argument("--start", default=None, help="test window start, ISO UTC")
+    ap.add_argument("--end", default=None, help="test window end (exclusive), ISO UTC")
     args = ap.parse_args()
     assert CFG.LIVE_TRADING_ENABLED is False
 
     reports = Path(args.reports); reports.mkdir(parents=True, exist_ok=True)
     symbols = args.symbols.split(",")
-    run = CFG.RunConfig(exchange=args.exchange)
+    run = CFG.RunConfig(exchange=args.exchange,
+                        start=args.start or CFG.BACKTEST_START,
+                        end=args.end or CFG.BACKTEST_END)
     run.strategy.universe = symbols
     write_config(run, reports, {"status": "pending"})
 

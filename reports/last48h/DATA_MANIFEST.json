@@ -1,0 +1,84 @@
+{
+  "exchange": "binance",
+  "endpoint": "https://fapi.binance.com",
+  "interval": "1h",
+  "requested_fetch_window": [
+    "2026-08-25T00:00:00Z",
+    "2026-11-05T00:00:00Z"
+  ],
+  "required_test_window": [
+    "2026-11-03T00:00:00Z",
+    "2026-11-05T00:00:00Z"
+  ],
+  "retrieval_started_utc": "2026-11-05T02:42:45.151539+00:00",
+  "files": [],
+  "errors": [
+    {
+      "symbol": "BTCUSDT",
+      "kind": "klines",
+      "error": "https://fapi.binance.com/fapi/v1/klines: ProxyError: HTTPSConnectionPool(host='fapi.binance.com', port=443): Max retries exceeded with url: /fapi/v1/klines?symbol=BTCUSDT&interval=1h&startTime=1787616000000&endTime=1793836799999&limit=1500 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "kind": "funding",
+      "error": "https://fapi.binance.com/fapi/v1/fundingRate: ProxyError: HTTPSConnectionPool(host='fapi.binance.com', port=443): Max retries exceeded with url: /fapi/v1/fundingRate?symbol=BTCUSDT&startTime=1787616000000&endTime=1793836799999&limit=1000 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "kind": "klines",
+      "error": "https://fapi.binance.com/fapi/v1/klines: ProxyError: HTTPSConnectionPool(host='fapi.binance.com', port=443): Max retries exceeded with url: /fapi/v1/klines?symbol=ETHUSDT&interval=1h&startTime=1787616000000&endTime=1793836799999&limit=1500 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "kind": "funding",
+      "error": "https://fapi.binance.com/fapi/v1/fundingRate: ProxyError: HTTPSConnectionPool(host='fapi.binance.com', port=443): Max retries exceeded with url: /fapi/v1/fundingRate?symbol=ETHUSDT&startTime=1787616000000&endTime=1793836799999&limit=1000 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    },
+    {
+      "symbol": "SOLUSDT",
+      "kind": "klines",
+      "error": "https://fapi.binance.com/fapi/v1/klines: ProxyError: HTTPSConnectionPool(host='fapi.binance.com', port=443): Max retries exceeded with url: /fapi/v1/klines?symbol=SOLUSDT&interval=1h&startTime=1787616000000&endTime=1793836799999&limit=1500 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    },
+    {
+      "symbol": "SOLUSDT",
+      "kind": "funding",
+      "error": "https://fapi.binance.com/fapi/v1/fundingRate: ProxyError: HTTPSConnectionPool(host='fapi.binance.com', port=443): Max retries exceeded with url: /fapi/v1/fundingRate?symbol=SOLUSDT&startTime=1787616000000&endTime=1793836799999&limit=1000 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    },
+    {
+      "symbol": "*",
+      "kind": "contract_specs",
+      "error": "https://fapi.binance.com/fapi/v1/exchangeInfo: ProxyError: HTTPSConnectionPool(host='fapi.binance.com', port=443): Max retries exceeded with url: /fapi/v1/exchangeInfo (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))"
+    }
+  ],
+  "coverage": {
+    "BTCUSDT": {
+      "test_window_missing_intervals": [
+        [
+          "2026-11-03T00:00:00Z",
+          "2026-11-05T00:00:00Z"
+        ]
+      ],
+      "complete": false
+    },
+    "ETHUSDT": {
+      "test_window_missing_intervals": [
+        [
+          "2026-11-03T00:00:00Z",
+          "2026-11-05T00:00:00Z"
+        ]
+      ],
+      "complete": false
+    },
+    "SOLUSDT": {
+      "test_window_missing_intervals": [
+        [
+          "2026-11-03T00:00:00Z",
+          "2026-11-05T00:00:00Z"
+        ]
+      ],
+      "complete": false
+    }
+  },
+  "contract_specs_source": "tradinggym.config.DEFAULT_SPECS (documented assumptions)",
+  "retrieval_finished_utc": "2026-11-05T02:43:31.547995+00:00",
+  "live_trading_enabled": false
+}
